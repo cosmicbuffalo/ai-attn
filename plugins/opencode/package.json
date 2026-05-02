@@ -1,0 +1,7 @@
+{
+  "name": "opencode-ai-attn",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "index.mjs",
+  "description": "OpenCode plugin for ai-attn attention tracking"
+}
