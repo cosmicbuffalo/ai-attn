@@ -10,11 +10,17 @@ TARGET_BIN="${INSTALL_DIR}/bin/ai-attn"
 FORCE_OVERWRITE=0
 VERSION="${AI_ATTN_VERSION:-latest}"
 
-# Detect if running from a cloned repo (hooks dir exists next to this script)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Detect if running from a cloned repo (hooks dir exists next to this script).
+# When piped through `curl ... | bash`, BASH_SOURCE[0] is unset because bash is
+# reading the script from stdin — in that case there is no script directory and
+# FROM_REPO stays 0.
 FROM_REPO=0
-if [ -f "$SCRIPT_DIR/hooks/claude.sh" ] && [ -f "$SCRIPT_DIR/hooks/codex.sh" ]; then
-  FROM_REPO=1
+SCRIPT_DIR=""
+if [ -n "${BASH_SOURCE[0]:-}" ]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  if [ -f "$SCRIPT_DIR/hooks/claude.sh" ] && [ -f "$SCRIPT_DIR/hooks/codex.sh" ]; then
+    FROM_REPO=1
+  fi
 fi
 
 PLUGIN_DIR="${INSTALL_DIR}/plugins/opencode"
