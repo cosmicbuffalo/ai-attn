@@ -8,11 +8,11 @@ AI_ATTN_LOG="${AI_ATTN_LOG:-${HOME}/.local/state/ai-attn/hook.log}"
 # Set up error logging — fall back to /dev/null if log dir doesn't exist
 log_dir="$(dirname "$AI_ATTN_LOG")"
 if [ -d "$log_dir" ]; then
-  # Rotate log if it exceeds ~5 MB to prevent unbounded growth.
+  # Truncate log if it exceeds ~5 MB to prevent unbounded growth.
   if [ -f "$AI_ATTN_LOG" ]; then
     log_size=$(stat -c%s "$AI_ATTN_LOG" 2>/dev/null || stat -f%z "$AI_ATTN_LOG" 2>/dev/null || echo 0)
     if [ "$log_size" -gt 5242880 ] 2>/dev/null; then
-      mv -f "$AI_ATTN_LOG" "${AI_ATTN_LOG}.1" 2>/dev/null || true
+      : > "$AI_ATTN_LOG" 2>/dev/null || true
     fi
   fi
   exec 2>>"$AI_ATTN_LOG"
