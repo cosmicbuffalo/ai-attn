@@ -41,6 +41,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return cmdLogs(args[1:], stdout, stderr)
 	case "test":
 		return cmdTest(stdout, stderr)
+	case "setup":
+		return cmdSetup(args[1:], stdout, stderr)
 	case "--help", "-h", "help":
 		printUsage(stdout)
 		return exitOK
@@ -69,6 +71,7 @@ Commands:
   init-config    Create default config file
   set-state      Record an agent state (working/waiting/done/stopped)
   clear-state    Clear the recorded state for a session
+  setup          Install hooks into an agent's config (e.g. setup claude)
   hook           Process a hook event end-to-end (used by hook scripts)
   version        Print version
 
