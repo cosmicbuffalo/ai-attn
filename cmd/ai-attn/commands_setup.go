@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -8,7 +9,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+
+	"github.com/BurntSushi/toml"
 )
 
 var claudeHookEvents = []string{
@@ -21,25 +25,30 @@ var claudeHookEvents = []string{
 	"SessionEnd",
 	"PreToolUse",
 	"PostToolUse",
+	"PostToolUseFailure",
 	"StopFailure",
 }
 
-var allAgents = []string{"claude"}
+var allAgents = []string{"claude", "codex", "opencode"}
 
 func cmdSetup(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("setup", flag.ContinueOnError)
 	fs.SetOutput(stderr)
+	dryRun := fs.Bool("dry-run", false, "Show what would be done without writing files")
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), `Usage: ai-attn setup [agent]
+		fmt.Fprintln(fs.Output(), `Usage: ai-attn setup [--dry-run] [agent]
 
 Installs ai-attn hooks into agent configuration files.
 Safe to re-run — removes existing ai-attn hooks and re-adds them fresh,
 preserving all other settings and non-ai-attn hooks.
 
-If no agent is specified, sets up all supported agents.
+If no agent is specified, auto-detects installed agents and sets up
+those found.
 
 Supported agents:
-  claude    Install hooks into ~/.claude/settings.json`)
+  claude    Install hooks into ~/.claude/settings.json
+  codex     Install notify hook into ~/.codex/config.toml
+  opencode  Install plugin into ~/.config/opencode/opencode.jsonc`)
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -48,39 +57,82 @@ Supported agents:
 		return exitUsage
 	}
 
-	agents := allAgents
+	var agents []string
 	if fs.NArg() > 0 {
-		agents = []string{fs.Arg(0)}
+		name := fs.Arg(0)
+		valid := false
+		for _, a := range allAgents {
+			if a == name {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			fmt.Fprintf(stderr, "unsupported agent: %s\n", name)
+			fs.Usage()
+			return exitUsage
+		}
+		agents = []string{name}
+	} else {
+		agents = detectAgents()
+		if len(agents) == 0 {
+			fmt.Fprintln(stdout, "No supported agents detected. Install an agent first, then run 'ai-attn setup'.")
+			return exitOK
+		}
 	}
 
 	exitCode := exitOK
 	for _, agent := range agents {
+		var rc int
 		switch agent {
 		case "claude":
-			if rc := setupClaude(stdout, stderr); rc != exitOK {
-				exitCode = rc
-			}
-		default:
-			fmt.Fprintf(stderr, "unsupported agent: %s\n", agent)
-			fs.Usage()
-			return exitUsage
+			rc = setupClaude(stdout, stderr, *dryRun)
+		case "codex":
+			rc = setupCodex(stdout, stderr, *dryRun)
+		case "opencode":
+			rc = setupOpencode(stdout, stderr, *dryRun)
+		}
+		if rc != exitOK {
+			exitCode = rc
 		}
 	}
 	return exitCode
 }
 
-const aiAttnHookMarker = "ai-attn/hooks/"
+func detectAgents() []string {
+	home := homeDir()
+	checks := []struct {
+		name string
+		dir  string
+	}{
+		{"claude", filepath.Join(home, ".claude")},
+		{"codex", filepath.Join(home, ".codex")},
+		{"opencode", filepath.Join(home, ".config", "opencode")},
+	}
+	var detected []string
+	for _, c := range checks {
+		if info, err := os.Stat(c.dir); err == nil && info.IsDir() {
+			detected = append(detected, c.name)
+		}
+	}
+	return detected
+}
 
-func setupClaude(stdout, stderr io.Writer) int {
+const aiAttnHookMarker = "ai-attn/hooks/"
+const aiAttnPluginMarker = "ai-attn/plugins/opencode"
+
+func setupClaude(stdout, stderr io.Writer, dryRun bool) int {
 	settingsPath := filepath.Join(homeDir(), ".claude", "settings.json")
 	hookCmd := "bash ~/.local/share/ai-attn/hooks/claude.sh"
 
-	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
-		fmt.Fprintf(stderr, "failed to create directory: %v\n", err)
-		return exitError
+	if !dryRun {
+		if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+			fmt.Fprintf(stderr, "failed to create directory: %v\n", err)
+			return exitError
+		}
 	}
 
-	var settings map[string]interface{}
+	var settings map[string]any
 
 	data, err := os.ReadFile(settingsPath)
 	if err != nil {
@@ -88,7 +140,7 @@ func setupClaude(stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "failed to read %s: %v\n", settingsPath, err)
 			return exitError
 		}
-		settings = map[string]interface{}{}
+		settings = map[string]any{}
 	} else {
 		if err := json.Unmarshal(data, &settings); err != nil {
 			fmt.Fprintf(stderr, "failed to parse %s: %v\n", settingsPath, err)
@@ -96,17 +148,16 @@ func setupClaude(stdout, stderr io.Writer) int {
 		}
 	}
 
-	hooks, _ := settings["hooks"].(map[string]interface{})
+	hooks, _ := settings["hooks"].(map[string]any)
 	if hooks == nil {
-		hooks = map[string]interface{}{}
+		hooks = map[string]any{}
 	}
 
-	// Remove existing ai-attn hook entries from all events before re-adding.
 	for event, val := range hooks {
 		hooks[event] = removeAiAttnEntries(val)
 	}
 
-	hookEntry := map[string]interface{}{
+	hookEntry := map[string]any{
 		"type":    "command",
 		"command": hookCmd,
 		"timeout": 10,
@@ -114,11 +165,11 @@ func setupClaude(stdout, stderr io.Writer) int {
 	}
 
 	for _, event := range claudeHookEvents {
-		matcher := map[string]interface{}{
+		matcher := map[string]any{
 			"matcher": "",
-			"hooks":   []interface{}{hookEntry},
+			"hooks":   []any{hookEntry},
 		}
-		existing, _ := hooks[event].([]interface{})
+		existing, _ := hooks[event].([]any)
 		hooks[event] = append(existing, matcher)
 	}
 
@@ -131,6 +182,12 @@ func setupClaude(stdout, stderr io.Writer) int {
 	}
 	out = append(out, '\n')
 
+	if dryRun {
+		fmt.Fprintf(stdout, "claude: would install %d hooks in %s (dry-run)\n",
+			len(claudeHookEvents), settingsPath)
+		return exitOK
+	}
+
 	if err := os.WriteFile(settingsPath, out, 0o644); err != nil {
 		fmt.Fprintf(stderr, "failed to write %s: %v\n", settingsPath, err)
 		return exitError
@@ -141,14 +198,180 @@ func setupClaude(stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-// removeAiAttnEntries removes any matcher entries that contain an ai-attn
-// hook command, preserving all other entries.
-func removeAiAttnEntries(eventEntry interface{}) []interface{} {
-	matchers, ok := eventEntry.([]interface{})
+func setupCodex(stdout, stderr io.Writer, dryRun bool) int {
+	configPath := filepath.Join(homeDir(), ".codex", "config.toml")
+	hookPath := filepath.Join(homeDir(), ".local", "share", "ai-attn", "hooks", "codex.sh")
+
+	if !dryRun {
+		if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+			fmt.Fprintf(stderr, "failed to create directory: %v\n", err)
+			return exitError
+		}
+	}
+
+	var config map[string]any
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			fmt.Fprintf(stderr, "failed to read %s: %v\n", configPath, err)
+			return exitError
+		}
+		config = map[string]any{}
+	} else {
+		if err := toml.Unmarshal(data, &config); err != nil {
+			fmt.Fprintf(stderr, "failed to parse %s: %v\n", configPath, err)
+			return exitError
+		}
+	}
+
+	config["notify"] = []any{"bash", hookPath}
+
+	var buf bytes.Buffer
+	if err := toml.NewEncoder(&buf).Encode(config); err != nil {
+		fmt.Fprintf(stderr, "failed to marshal config: %v\n", err)
+		return exitError
+	}
+
+	if dryRun {
+		fmt.Fprintf(stdout, "codex: would install hook in %s (dry-run)\n", configPath)
+		return exitOK
+	}
+
+	if err := os.WriteFile(configPath, buf.Bytes(), 0o644); err != nil {
+		fmt.Fprintf(stderr, "failed to write %s: %v\n", configPath, err)
+		return exitError
+	}
+
+	fmt.Fprintf(stdout, "codex: installed hook in %s\n", configPath)
+	return exitOK
+}
+
+func setupOpencode(stdout, stderr io.Writer, dryRun bool) int {
+	configPath := filepath.Join(homeDir(), ".config", "opencode", "opencode.jsonc")
+	pluginPath := filepath.Join(homeDir(), ".local", "share", "ai-attn", "plugins", "opencode")
+
+	if !dryRun {
+		if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+			fmt.Fprintf(stderr, "failed to create directory: %v\n", err)
+			return exitError
+		}
+	}
+
+	var config map[string]any
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			fmt.Fprintf(stderr, "failed to read %s: %v\n", configPath, err)
+			return exitError
+		}
+		config = map[string]any{}
+	} else {
+		stripped := stripJSONCComments(string(data))
+		if err := json.Unmarshal([]byte(stripped), &config); err != nil {
+			fmt.Fprintf(stderr, "failed to parse %s: %v\n", configPath, err)
+			return exitError
+		}
+	}
+
+	plugins, _ := config["plugin"].([]any)
+
+	var kept []any
+	for _, p := range plugins {
+		s, ok := p.(string)
+		if ok && strings.Contains(s, aiAttnPluginMarker) {
+			continue
+		}
+		kept = append(kept, p)
+	}
+	kept = append(kept, pluginPath)
+	config["plugin"] = kept
+
+	out, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		fmt.Fprintf(stderr, "failed to marshal config: %v\n", err)
+		return exitError
+	}
+	out = append(out, '\n')
+
+	if dryRun {
+		fmt.Fprintf(stdout, "opencode: would install plugin in %s (dry-run)\n", configPath)
+		return exitOK
+	}
+
+	if err := os.WriteFile(configPath, out, 0o644); err != nil {
+		fmt.Fprintf(stderr, "failed to write %s: %v\n", configPath, err)
+		return exitError
+	}
+
+	fmt.Fprintf(stdout, "opencode: installed plugin in %s\n", configPath)
+	return exitOK
+}
+
+func stripJSONCComments(s string) string {
+	var out strings.Builder
+	inString := false
+	inBlock := false
+	i := 0
+	for i < len(s) {
+		if inBlock {
+			if i+1 < len(s) && s[i] == '*' && s[i+1] == '/' {
+				inBlock = false
+				i += 2
+				continue
+			}
+			if s[i] == '\n' {
+				out.WriteByte('\n')
+			}
+			i++
+			continue
+		}
+		if inString {
+			if s[i] == '\\' && i+1 < len(s) {
+				out.WriteByte(s[i])
+				out.WriteByte(s[i+1])
+				i += 2
+				continue
+			}
+			if s[i] == '"' {
+				inString = false
+			}
+			out.WriteByte(s[i])
+			i++
+			continue
+		}
+		if s[i] == '"' {
+			inString = true
+			out.WriteByte(s[i])
+			i++
+			continue
+		}
+		if i+1 < len(s) && s[i] == '/' && s[i+1] == '/' {
+			for i < len(s) && s[i] != '\n' {
+				i++
+			}
+			continue
+		}
+		if i+1 < len(s) && s[i] == '/' && s[i+1] == '*' {
+			inBlock = true
+			i += 2
+			continue
+		}
+		out.WriteByte(s[i])
+		i++
+	}
+	return trailingCommaRe.ReplaceAllString(out.String(), "$1")
+}
+
+var trailingCommaRe = regexp.MustCompile(`,\s*([\]}])`)
+
+func removeAiAttnEntries(eventEntry any) []any {
+	matchers, ok := eventEntry.([]any)
 	if !ok {
 		return nil
 	}
-	var kept []interface{}
+	var kept []any
 	for _, m := range matchers {
 		if matcherHasAiAttn(m) {
 			continue
@@ -158,17 +381,17 @@ func removeAiAttnEntries(eventEntry interface{}) []interface{} {
 	return kept
 }
 
-func matcherHasAiAttn(m interface{}) bool {
-	matcher, ok := m.(map[string]interface{})
+func matcherHasAiAttn(m any) bool {
+	matcher, ok := m.(map[string]any)
 	if !ok {
 		return false
 	}
-	hookList, ok := matcher["hooks"].([]interface{})
+	hookList, ok := matcher["hooks"].([]any)
 	if !ok {
 		return false
 	}
 	for _, h := range hookList {
-		hook, ok := h.(map[string]interface{})
+		hook, ok := h.(map[string]any)
 		if !ok {
 			continue
 		}

@@ -213,40 +213,18 @@ ln -sf "$TARGET_BIN" "$BIN_DIR/ai-attn"
 # config file is missing; users who want to override them can run
 # `ai-attn init-config` themselves.
 
-if [ "$VERSION" = "latest" ]; then
-  AGENTS_MD_URL="https://raw.githubusercontent.com/${REPO}/main/AGENTS.md"
-else
-  AGENTS_MD_URL="https://raw.githubusercontent.com/${REPO}/${VERSION}/AGENTS.md"
-fi
-
 cat <<EOF
 Installed ai-attn.
 
 Binary:
   $BIN_DIR/ai-attn
 
-Next step — wire hooks into your AI agent config:
-  Ask your AI agent to read AGENTS.md and follow the instructions.
+Wiring hooks...
 EOF
 
-if [ "$FROM_REPO" -eq 1 ]; then
-  echo "  File: $SCRIPT_DIR/AGENTS.md"
-else
-  echo "  URL:  $AGENTS_MD_URL"
-fi
+"$BIN_DIR/ai-attn" setup || true
 
 cat <<EOF
-
-  Or wire hooks manually:
-
-  Claude hook command:
-    bash $INSTALL_DIR/hooks/claude.sh
-
-  Codex notify snippet (~/.codex/config.toml):
-    notify = ["bash", "$INSTALL_DIR/hooks/codex.sh"]
-
-  OpenCode plugin (add to plugin array in ~/.config/opencode/opencode.jsonc):
-    "$PLUGIN_DIR"
 
 Uninstall:
   bash $INSTALL_DIR/uninstall.sh

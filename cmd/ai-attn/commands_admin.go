@@ -215,10 +215,10 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 		}
 		configData, err := os.ReadFile(check.configFile)
 		if err != nil {
-			fmt.Fprintf(stdout, "hook_%s=not_wired (script exists but not referenced in %s)\n", agent, check.configFile)
+			fmt.Fprintf(stdout, "hook_%s=not_wired (script exists but not referenced in %s) — run 'ai-attn setup' to fix\n", agent, check.configFile)
 			allPassed = false
 		} else if !strings.Contains(string(configData), check.searchStr) {
-			fmt.Fprintf(stdout, "hook_%s=not_wired (script exists but not referenced in %s)\n", agent, check.configFile)
+			fmt.Fprintf(stdout, "hook_%s=not_wired (script exists but not referenced in %s) — run 'ai-attn setup' to fix\n", agent, check.configFile)
 			allPassed = false
 		} else {
 			fmt.Fprintf(stdout, "hook_%s=installed\n", agent)

@@ -96,6 +96,30 @@ func TestDoctorFailsWhenHooksNotWired(t *testing.T) {
 	}
 }
 
+func TestDoctorNotWiredSuggestsSetup(t *testing.T) {
+	home := withTempHome(t)
+	hookDir := filepath.Join(home, ".local", "share", "ai-attn", "hooks")
+	os.MkdirAll(hookDir, 0o755)
+	for _, hook := range []string{"claude.sh", "codex.sh", "opencode.sh"} {
+		os.WriteFile(filepath.Join(hookDir, hook), []byte("#!/usr/bin/env bash\n"), 0o755)
+	}
+	// Create config files without ai-attn references.
+	os.MkdirAll(filepath.Join(home, ".claude"), 0o755)
+	os.WriteFile(filepath.Join(home, ".claude", "settings.json"), []byte(`{}`), 0o644)
+	os.MkdirAll(filepath.Join(home, ".codex"), 0o755)
+	os.WriteFile(filepath.Join(home, ".codex", "config.toml"), []byte(""), 0o644)
+	os.MkdirAll(filepath.Join(home, ".config", "opencode"), 0o755)
+	os.WriteFile(filepath.Join(home, ".config", "opencode", "opencode.jsonc"), []byte(`{}`), 0o644)
+
+	rc, stdout, _ := runCLI(t, "doctor")
+	if rc != exitError {
+		t.Fatalf("expected doctor failure, rc=%d output=%s", rc, stdout)
+	}
+	if !strings.Contains(stdout, "ai-attn setup") {
+		t.Fatalf("expected setup hint in not_wired output: %s", stdout)
+	}
+}
+
 // TestDoctorFailsOnSemanticallyInvalidConfig verifies that doctor detects an invalid config value (e.g., wrong type).
 func TestDoctorFailsOnSemanticallyInvalidConfig(t *testing.T) {
 	home := withTempHome(t)
