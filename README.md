@@ -191,7 +191,7 @@ Create the default config file at `~/.config/ai-attn/config.toml` if it doesn't 
 
 Install ai-attn hooks into an agent's config file. With no argument, auto-detects installed agents (`claude`, `codex`, `opencode`) by checking for their config directories and sets up those found. Supported explicit subjects:
 
-- `claude` — writes 10 hook entries into `~/.claude/settings.json`
+- `claude` — writes 11 hook entries into `~/.claude/settings.json`
 - `codex` — sets the `notify` array in `~/.codex/config.toml`
 - `opencode` — appends the bundled plugin path to the `plugin` array in `~/.config/opencode/opencode.jsonc`
 
