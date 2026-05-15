@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"syscall"
@@ -217,12 +218,18 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 		if err != nil {
 			fmt.Fprintf(stdout, "hook_%s=not_wired (script exists but not referenced in %s) — run 'ai-attn setup' to fix\n", agent, check.configFile)
 			allPassed = false
-		} else if !strings.Contains(string(configData), check.searchStr) {
-			fmt.Fprintf(stdout, "hook_%s=not_wired (script exists but not referenced in %s) — run 'ai-attn setup' to fix\n", agent, check.configFile)
-			allPassed = false
-		} else {
-			fmt.Fprintf(stdout, "hook_%s=installed\n", agent)
+			continue
 		}
+		if strings.Contains(string(configData), check.searchStr) {
+			fmt.Fprintf(stdout, "hook_%s=installed\n", agent)
+			continue
+		}
+		if wrapper := findWrapperReferencingCanonical(configData, check.searchStr); wrapper != "" {
+			fmt.Fprintf(stdout, "hook_%s=installed (via wrapper at %s)\n", agent, wrapper)
+			continue
+		}
+		fmt.Fprintf(stdout, "hook_%s=not_wired (script exists but not referenced in %s) — run 'ai-attn setup' to fix\n", agent, check.configFile)
+		allPassed = false
 	}
 
 	if allPassed {
@@ -231,6 +238,62 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintln(stdout, "\nSome checks failed. See above for details.")
 	return exitError
+}
+
+// findWrapperReferencingCanonical scans the agent's config for paths to script files,
+// reads each candidate script, and returns the first one whose contents reference the
+// canonical hook path (searchStr). Returns "" if no such wrapper is found.
+//
+// This lets doctor recognize setups like `notify = ["bash", "/path/to/codex-multi.sh"]`
+// where codex-multi.sh is a user-authored fan-out that ultimately invokes our canonical
+// codex.sh — strictly the canonical path isn't in the config, but the wiring still
+// reaches our hook.
+func findWrapperReferencingCanonical(configData []byte, searchStr string) string {
+	for _, candidate := range candidatePathsInConfig(configData) {
+		expanded := expandHome(candidate)
+		info, err := os.Stat(expanded)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		body, err := os.ReadFile(expanded)
+		if err != nil {
+			continue
+		}
+		if strings.Contains(string(body), searchStr) {
+			return expanded
+		}
+	}
+	return ""
+}
+
+// candidatePathsInConfig returns paths mentioned in the agent's config that
+// might be wrapper scripts pointing at ai-attn. The extraction is intentionally
+// permissive — anything that looks like an absolute path or a ~/ path is fair
+// game, and the caller will filter by whether the file exists and contains the
+// canonical hook reference.
+// pathRe matches absolute or ~/-rooted paths in a config file, stopping at
+// characters that can't appear in shell/JSON/TOML path literals (quotes,
+// whitespace, common structural punctuation).
+var pathRe = regexp.MustCompile(`~?/[^\s"',\[\]{}():;<>]+`)
+
+func candidatePathsInConfig(configData []byte) []string {
+	var paths []string
+	seen := map[string]bool{}
+	for _, match := range pathRe.FindAllString(string(configData), -1) {
+		if seen[match] {
+			continue
+		}
+		seen[match] = true
+		paths = append(paths, match)
+	}
+	return paths
+}
+
+func expandHome(p string) string {
+	if strings.HasPrefix(p, "~/") {
+		return filepath.Join(homeDir(), p[2:])
+	}
+	return p
 }
 
 // cmdInitConfig implements the init-config subcommand, creating a default config file if one does not exist.

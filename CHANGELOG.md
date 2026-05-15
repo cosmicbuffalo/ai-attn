@@ -17,8 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Safety
 
-- `ai-attn setup codex` refuses to overwrite an existing `notify` command in `~/.codex/config.toml` that does not point at an ai-attn hook. Codex supports only one global notify command, so the user must explicitly opt in to replacing it (remove the line manually, or pass `--force`).
+- `ai-attn setup codex` refuses to overwrite an existing `notify` command in `~/.codex/config.toml` that does not point at the canonical ai-attn hook. Codex supports only one global notify command, so the user must explicitly opt in to replacing it (remove the line manually, or pass `--force`).
 - `ai-attn setup opencode` refuses to rewrite `~/.config/opencode/opencode.jsonc` when the file contains `//` or `/* */` comments, since the rewrite emits plain JSON and would drop them. Pass `--force` to accept the loss, or wire the plugin manually per AGENTS.md.
+- The "is this entry ours?" marker check used by setup is now an exact filename match (`ai-attn/hooks/claude.sh`, `ai-attn/hooks/codex.sh`, `ai-attn/plugins/opencode`) instead of the loose `ai-attn/hooks/` substring. A user-authored fan-out wrapper that lives under `ai-attn/hooks/` (e.g. `codex-multi.sh` calling both peon-ping and our canonical hook) is no longer silently overwritten — it triggers the codex refusal path, and is preserved untouched alongside the canonical hook in claude's case.
+
+### Changed
+
+- `ai-attn doctor` now follows one level of wrapper. If the agent's config references a script path that is not the canonical hook, doctor reads that script and reports `installed (via wrapper at <path>)` when the script in turn references the canonical hook. Previously such setups were misreported as `not_wired`.
 
 ### Changed
 

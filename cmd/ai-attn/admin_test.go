@@ -120,6 +120,81 @@ func TestDoctorNotWiredSuggestsSetup(t *testing.T) {
 	}
 }
 
+// TestDoctorDetectsCodexWrapper verifies that doctor follows a wrapper script — when
+// codex's notify points at a script that itself invokes the canonical codex.sh — and
+// reports the hook as installed via the wrapper's path.
+func TestDoctorDetectsCodexWrapper(t *testing.T) {
+	home := withTempHome(t)
+	hookDir := filepath.Join(home, ".local", "share", "ai-attn", "hooks")
+	os.MkdirAll(hookDir, 0o755)
+	for _, hook := range []string{"claude.sh", "codex.sh", "opencode.sh"} {
+		os.WriteFile(filepath.Join(hookDir, hook), []byte("#!/usr/bin/env bash\n"), 0o755)
+	}
+	wrapper := filepath.Join(hookDir, "codex-multi.sh")
+	wrapperBody := "#!/usr/bin/env bash\nexec bash " + filepath.Join(hookDir, "codex.sh") + " \"$@\"\n"
+	os.WriteFile(wrapper, []byte(wrapperBody), 0o755)
+
+	os.MkdirAll(filepath.Join(home, ".codex"), 0o755)
+	os.WriteFile(filepath.Join(home, ".codex", "config.toml"),
+		[]byte(`notify = ["bash", "`+wrapper+`"]`), 0o644)
+
+	rc, stdout, _ := runCLI(t, "doctor")
+	if rc == exitOK {
+		t.Fatalf("expected doctor to fail overall (claude/opencode unwired), got rc=%d", rc)
+	}
+	if !strings.Contains(stdout, "hook_codex=installed (via wrapper at "+wrapper) {
+		t.Fatalf("expected codex reported as installed via wrapper, got: %s", stdout)
+	}
+}
+
+func TestDoctorDoesNotFollowUnrelatedScripts(t *testing.T) {
+	home := withTempHome(t)
+	hookDir := filepath.Join(home, ".local", "share", "ai-attn", "hooks")
+	os.MkdirAll(hookDir, 0o755)
+	for _, hook := range []string{"claude.sh", "codex.sh", "opencode.sh"} {
+		os.WriteFile(filepath.Join(hookDir, hook), []byte("#!/usr/bin/env bash\n"), 0o755)
+	}
+	unrelated := filepath.Join(home, "my-notify.sh")
+	os.WriteFile(unrelated, []byte("#!/usr/bin/env bash\necho hi\n"), 0o755)
+
+	os.MkdirAll(filepath.Join(home, ".codex"), 0o755)
+	os.WriteFile(filepath.Join(home, ".codex", "config.toml"),
+		[]byte(`notify = ["bash", "`+unrelated+`"]`), 0o644)
+
+	rc, stdout, _ := runCLI(t, "doctor")
+	if rc != exitError {
+		t.Fatalf("expected doctor to fail, got rc=%d", rc)
+	}
+	if !strings.Contains(stdout, "hook_codex=not_wired") {
+		t.Fatalf("expected codex not_wired when wrapper does not reference canonical, got: %s", stdout)
+	}
+}
+
+func TestDoctorDetectsClaudeWrapper(t *testing.T) {
+	home := withTempHome(t)
+	hookDir := filepath.Join(home, ".local", "share", "ai-attn", "hooks")
+	os.MkdirAll(hookDir, 0o755)
+	for _, hook := range []string{"claude.sh", "codex.sh", "opencode.sh"} {
+		os.WriteFile(filepath.Join(hookDir, hook), []byte("#!/usr/bin/env bash\n"), 0o755)
+	}
+	wrapper := filepath.Join(home, ".claude", "hooks", "wrapper.sh")
+	os.MkdirAll(filepath.Dir(wrapper), 0o755)
+	wrapperBody := "#!/usr/bin/env bash\nexec bash " + filepath.Join(hookDir, "claude.sh") + "\n"
+	os.WriteFile(wrapper, []byte(wrapperBody), 0o755)
+
+	os.WriteFile(filepath.Join(home, ".claude", "settings.json"),
+		[]byte(`{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"bash `+wrapper+`","timeout":10}]}]}}`),
+		0o644)
+
+	rc, stdout, _ := runCLI(t, "doctor")
+	if rc == exitOK {
+		t.Fatalf("expected doctor to fail overall, got rc=%d", rc)
+	}
+	if !strings.Contains(stdout, "hook_claude=installed (via wrapper at "+wrapper) {
+		t.Fatalf("expected claude reported as installed via wrapper, got: %s", stdout)
+	}
+}
+
 // TestDoctorFailsOnSemanticallyInvalidConfig verifies that doctor detects an invalid config value (e.g., wrong type).
 func TestDoctorFailsOnSemanticallyInvalidConfig(t *testing.T) {
 	home := withTempHome(t)

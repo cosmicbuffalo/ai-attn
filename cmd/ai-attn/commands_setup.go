@@ -123,8 +123,11 @@ func detectAgents() []string {
 	return detected
 }
 
-const aiAttnHookMarker = "ai-attn/hooks/"
-const aiAttnPluginMarker = "ai-attn/plugins/opencode"
+const (
+	claudeHookSuffix   = "ai-attn/hooks/claude.sh"
+	codexHookSuffix    = "ai-attn/hooks/codex.sh"
+	aiAttnPluginMarker = "ai-attn/plugins/opencode"
+)
 
 func setupClaude(stdout, stderr io.Writer, dryRun bool) int {
 	settingsPath := filepath.Join(homeDir(), ".claude", "settings.json")
@@ -427,7 +430,7 @@ func removeAiAttnEntries(eventEntry any) []any {
 
 func notifyIsAiAttn(notify []any) bool {
 	for _, v := range notify {
-		if s, ok := v.(string); ok && strings.Contains(s, aiAttnHookMarker) {
+		if s, ok := v.(string); ok && strings.Contains(s, codexHookSuffix) {
 			return true
 		}
 	}
@@ -460,7 +463,7 @@ func matcherHasAiAttn(m any) bool {
 		if !ok {
 			continue
 		}
-		if cmd, ok := hook["command"].(string); ok && strings.Contains(cmd, aiAttnHookMarker) {
+		if cmd, ok := hook["command"].(string); ok && strings.Contains(cmd, claudeHookSuffix) {
 			return true
 		}
 	}

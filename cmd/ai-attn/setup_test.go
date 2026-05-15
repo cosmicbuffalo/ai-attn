@@ -320,6 +320,86 @@ func TestSetupCodexRefusesForeignNotify(t *testing.T) {
 	}
 }
 
+func TestSetupCodexRefusesAiAttnWrapper(t *testing.T) {
+	home := withTempHome(t)
+	configPath := filepath.Join(home, ".codex", "config.toml")
+	os.MkdirAll(filepath.Dir(configPath), 0o755)
+	wrapper := filepath.Join(home, ".local", "share", "ai-attn", "hooks", "codex-multi.sh")
+	original := "notify = [\"bash\", \"" + wrapper + "\"]\n"
+	os.WriteFile(configPath, []byte(original), 0o644)
+
+	rc, _, stderr := runCLI(t, "setup", "codex")
+	if rc == exitOK {
+		t.Fatalf("expected refusal for non-canonical wrapper under ai-attn/hooks/, got rc=%d", rc)
+	}
+	if !strings.Contains(stderr, "refusing to overwrite") {
+		t.Fatalf("expected refusal warning, got: %s", stderr)
+	}
+	data, _ := os.ReadFile(configPath)
+	if string(data) != original {
+		t.Fatalf("expected config unchanged, got:\n%s", string(data))
+	}
+}
+
+func TestSetupClaudePreservesNonCanonicalWrapper(t *testing.T) {
+	home := withTempHome(t)
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
+	os.MkdirAll(filepath.Dir(settingsPath), 0o755)
+	wrapper := filepath.Join(home, ".local", "share", "ai-attn", "hooks", "claude-multi.sh")
+	settings := map[string]any{
+		"hooks": map[string]any{
+			"Stop": []any{
+				map[string]any{
+					"matcher": "",
+					"hooks": []any{
+						map[string]any{
+							"type":    "command",
+							"command": "bash " + wrapper,
+							"timeout": 10,
+						},
+					},
+				},
+			},
+		},
+	}
+	data, _ := json.MarshalIndent(settings, "", "  ")
+	os.WriteFile(settingsPath, data, 0o644)
+
+	rc, _, _ := runCLI(t, "setup", "claude")
+	if rc != exitOK {
+		t.Fatalf("expected exit 0, got %d", rc)
+	}
+
+	result := readSettings(t, settingsPath)
+	hooks := result["hooks"].(map[string]any)
+	stopMatchers := hooks["Stop"].([]any)
+	if len(stopMatchers) != 2 {
+		t.Fatalf("expected wrapper matcher kept and canonical matcher added (2 total), got %d", len(stopMatchers))
+	}
+
+	foundWrapper := false
+	foundCanonical := false
+	for _, m := range stopMatchers {
+		matcher := m.(map[string]any)
+		hookList := matcher["hooks"].([]any)
+		for _, h := range hookList {
+			cmd, _ := h.(map[string]any)["command"].(string)
+			if strings.Contains(cmd, "claude-multi.sh") {
+				foundWrapper = true
+			}
+			if strings.HasSuffix(cmd, "ai-attn/hooks/claude.sh") {
+				foundCanonical = true
+			}
+		}
+	}
+	if !foundWrapper {
+		t.Fatal("expected wrapper command to be preserved")
+	}
+	if !foundCanonical {
+		t.Fatal("expected canonical ai-attn command to be added alongside wrapper")
+	}
+}
+
 func TestSetupCodexForceOverwritesForeignNotify(t *testing.T) {
 	home := withTempHome(t)
 	configPath := filepath.Join(home, ".codex", "config.toml")
