@@ -11,8 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - `ai-attn setup` command for automated hook installation. Supported subjects: `claude` (writes 10 hook entries into `~/.claude/settings.json`), `codex` (writes the `notify` array into `~/.codex/config.toml`), and `opencode` (adds the bundled plugin path to the `plugin` array in `~/.config/opencode/opencode.jsonc`). With no argument, auto-detects installed agents by checking for their config directories and sets up those found.
 - `--dry-run` flag on `ai-attn setup` to preview the planned changes without writing files.
+- `--force` flag on `ai-attn setup` to override the two refusal cases below.
 - JSONC-aware parsing for OpenCode configs: line/block comments and trailing commas are tolerated when reading `opencode.jsonc`.
 - `PostToolUseFailure` to the Claude hook event list (was handled by the hook script but not previously registered by setup tooling).
+
+### Safety
+
+- `ai-attn setup codex` refuses to overwrite an existing `notify` command in `~/.codex/config.toml` that does not point at an ai-attn hook. Codex supports only one global notify command, so the user must explicitly opt in to replacing it (remove the line manually, or pass `--force`).
+- `ai-attn setup opencode` refuses to rewrite `~/.config/opencode/opencode.jsonc` when the file contains `//` or `/* */` comments, since the rewrite emits plain JSON and would drop them. Pass `--force` to accept the loss, or wire the plugin manually per AGENTS.md.
 
 ### Changed
 
@@ -22,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Note
 
-- OpenCode config files are re-emitted as plain JSON after setup runs. Comments and trailing commas present in the source `opencode.jsonc` are not preserved in the rewritten file.
+- OpenCode config files are re-emitted as plain JSON after setup runs. Trailing commas present in the source `opencode.jsonc` are not preserved in the rewritten file. Files containing `//` or `/* */` comments are refused unless `--force` is passed (see Safety above).
 
 ## [0.1.0] - 2026-05-02
 

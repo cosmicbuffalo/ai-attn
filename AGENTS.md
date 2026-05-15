@@ -12,7 +12,12 @@ ai-attn setup claude       # wire a single agent
 ai-attn setup --dry-run    # preview without writing
 ```
 
-It is idempotent (existing ai-attn entries are removed and re-added fresh) and preserves non-ai-attn hooks, top-level settings, and other plugins. Use the manual steps below only if `ai-attn setup` is unavailable, fails for a specific agent, or the user explicitly wants to wire hooks by hand. After running setup, skip to [Post-Setup Verification](#post-setup-verification).
+It is idempotent (existing ai-attn entries are removed and re-added fresh) and preserves non-ai-attn hooks, top-level settings, and other plugins. Two cases require explicit opt-in via `--force` (or manual wiring per the steps below):
+
+- **Codex** supports only one global `notify` command, so setup refuses if `~/.codex/config.toml` already has a non-ai-attn `notify`.
+- **OpenCode** setup re-emits `opencode.jsonc` as plain JSON, so it refuses when the file contains `//` or `/* */` comments. The Codex and OpenCode manual steps below remain valid alternatives in these cases.
+
+After running setup, skip to [Post-Setup Verification](#post-setup-verification).
 
 ## Prerequisites
 

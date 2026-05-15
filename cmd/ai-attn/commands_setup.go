@@ -35,8 +35,9 @@ func cmdSetup(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("setup", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	dryRun := fs.Bool("dry-run", false, "Show what would be done without writing files")
+	force := fs.Bool("force", false, "Overwrite a foreign codex notify command instead of refusing")
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), `Usage: ai-attn setup [--dry-run] [agent]
+		fmt.Fprintln(fs.Output(), `Usage: ai-attn setup [--dry-run] [--force] [agent]
 
 Installs ai-attn hooks into agent configuration files.
 Safe to re-run — removes existing ai-attn hooks and re-adds them fresh,
@@ -44,6 +45,10 @@ preserving all other settings and non-ai-attn hooks.
 
 If no agent is specified, auto-detects installed agents and sets up
 those found.
+
+Codex supports only one global notify command. If ~/.codex/config.toml
+already has a notify entry that is not an ai-attn hook, setup refuses
+to overwrite it. Pass --force to overwrite anyway.
 
 Supported agents:
   claude    Install hooks into ~/.claude/settings.json
@@ -88,9 +93,9 @@ Supported agents:
 		case "claude":
 			rc = setupClaude(stdout, stderr, *dryRun)
 		case "codex":
-			rc = setupCodex(stdout, stderr, *dryRun)
+			rc = setupCodex(stdout, stderr, *dryRun, *force)
 		case "opencode":
-			rc = setupOpencode(stdout, stderr, *dryRun)
+			rc = setupOpencode(stdout, stderr, *dryRun, *force)
 		}
 		if rc != exitOK {
 			exitCode = rc
@@ -198,7 +203,7 @@ func setupClaude(stdout, stderr io.Writer, dryRun bool) int {
 	return exitOK
 }
 
-func setupCodex(stdout, stderr io.Writer, dryRun bool) int {
+func setupCodex(stdout, stderr io.Writer, dryRun, force bool) int {
 	configPath := filepath.Join(homeDir(), ".codex", "config.toml")
 	hookPath := filepath.Join(homeDir(), ".local", "share", "ai-attn", "hooks", "codex.sh")
 
@@ -225,6 +230,14 @@ func setupCodex(stdout, stderr io.Writer, dryRun bool) int {
 		}
 	}
 
+	if existing, ok := config["notify"].([]any); ok && !notifyIsAiAttn(existing) && !force {
+		fmt.Fprintf(stderr, "codex: refusing to overwrite existing notify in %s\n", configPath)
+		fmt.Fprintf(stderr, "  existing: %s\n", formatNotify(existing))
+		fmt.Fprintln(stderr, "  codex supports only one global notify command. Remove the line manually,")
+		fmt.Fprintln(stderr, "  or re-run with --force to overwrite.")
+		return exitError
+	}
+
 	config["notify"] = []any{"bash", hookPath}
 
 	var buf bytes.Buffer
@@ -247,7 +260,7 @@ func setupCodex(stdout, stderr io.Writer, dryRun bool) int {
 	return exitOK
 }
 
-func setupOpencode(stdout, stderr io.Writer, dryRun bool) int {
+func setupOpencode(stdout, stderr io.Writer, dryRun, force bool) int {
 	configPath := filepath.Join(homeDir(), ".config", "opencode", "opencode.jsonc")
 	pluginPath := filepath.Join(homeDir(), ".local", "share", "ai-attn", "plugins", "opencode")
 
@@ -268,6 +281,13 @@ func setupOpencode(stdout, stderr io.Writer, dryRun bool) int {
 		}
 		config = map[string]any{}
 	} else {
+		if hasJSONCComments(string(data)) && !force {
+			fmt.Fprintf(stderr, "opencode: refusing to overwrite %s: file contains comments that would be lost\n", configPath)
+			fmt.Fprintln(stderr, "  Setup re-emits the config as plain JSON, dropping // and /* */ comments.")
+			fmt.Fprintln(stderr, "  Either remove the comments, wire the plugin manually (see AGENTS.md),")
+			fmt.Fprintln(stderr, "  or re-run with --force to overwrite.")
+			return exitError
+		}
 		stripped := stripJSONCComments(string(data))
 		if err := json.Unmarshal([]byte(stripped), &config); err != nil {
 			fmt.Fprintf(stderr, "failed to parse %s: %v\n", configPath, err)
@@ -307,6 +327,30 @@ func setupOpencode(stdout, stderr io.Writer, dryRun bool) int {
 
 	fmt.Fprintf(stdout, "opencode: installed plugin in %s\n", configPath)
 	return exitOK
+}
+
+func hasJSONCComments(s string) bool {
+	inString := false
+	for i := 0; i < len(s); i++ {
+		if inString {
+			if s[i] == '\\' && i+1 < len(s) {
+				i++
+				continue
+			}
+			if s[i] == '"' {
+				inString = false
+			}
+			continue
+		}
+		if s[i] == '"' {
+			inString = true
+			continue
+		}
+		if i+1 < len(s) && s[i] == '/' && (s[i+1] == '/' || s[i+1] == '*') {
+			return true
+		}
+	}
+	return false
 }
 
 func stripJSONCComments(s string) string {
@@ -379,6 +423,27 @@ func removeAiAttnEntries(eventEntry any) []any {
 		kept = append(kept, m)
 	}
 	return kept
+}
+
+func notifyIsAiAttn(notify []any) bool {
+	for _, v := range notify {
+		if s, ok := v.(string); ok && strings.Contains(s, aiAttnHookMarker) {
+			return true
+		}
+	}
+	return false
+}
+
+func formatNotify(notify []any) string {
+	parts := make([]string, 0, len(notify))
+	for _, v := range notify {
+		if s, ok := v.(string); ok {
+			parts = append(parts, fmt.Sprintf("%q", s))
+		} else {
+			parts = append(parts, fmt.Sprintf("%v", v))
+		}
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
 }
 
 func matcherHasAiAttn(m any) bool {

@@ -273,11 +273,12 @@ func TestSetupCodexPreservesOtherKeys(t *testing.T) {
 	}
 }
 
-func TestSetupCodexReplacesOldNotify(t *testing.T) {
+func TestSetupCodexReplacesStaleAiAttnNotify(t *testing.T) {
 	home := withTempHome(t)
 	configPath := filepath.Join(home, ".codex", "config.toml")
 	os.MkdirAll(filepath.Dir(configPath), 0o755)
-	os.WriteFile(configPath, []byte("notify = [\"bash\", \"/old/path/codex.sh\"]\n"), 0o644)
+	stale := "notify = [\"bash\", \"/old/path/.local/share/ai-attn/hooks/codex.sh\"]\n"
+	os.WriteFile(configPath, []byte(stale), 0o644)
 
 	rc, _, _ := runCLI(t, "setup", "codex")
 	if rc != exitOK {
@@ -288,7 +289,69 @@ func TestSetupCodexReplacesOldNotify(t *testing.T) {
 	notify, _ := config["notify"].([]any)
 	hookPath := filepath.Join(home, ".local", "share", "ai-attn", "hooks", "codex.sh")
 	if len(notify) != 2 || notify[1] != hookPath {
-		t.Fatalf("expected notify to be replaced with ai-attn path, got %v", notify)
+		t.Fatalf("expected stale ai-attn notify to be replaced with current path, got %v", notify)
+	}
+}
+
+func TestSetupCodexRefusesForeignNotify(t *testing.T) {
+	home := withTempHome(t)
+	configPath := filepath.Join(home, ".codex", "config.toml")
+	os.MkdirAll(filepath.Dir(configPath), 0o755)
+	original := "notify = [\"bash\", \"/usr/local/bin/my-own-hook.sh\"]\n"
+	os.WriteFile(configPath, []byte(original), 0o644)
+
+	rc, _, stderr := runCLI(t, "setup", "codex")
+	if rc == exitOK {
+		t.Fatalf("expected non-zero exit when refusing foreign notify, got %d", rc)
+	}
+	if !strings.Contains(stderr, "refusing to overwrite") {
+		t.Fatalf("expected refusal warning in stderr, got: %s", stderr)
+	}
+	if !strings.Contains(stderr, "--force") {
+		t.Fatalf("expected stderr to mention --force escape hatch, got: %s", stderr)
+	}
+	if !strings.Contains(stderr, "/usr/local/bin/my-own-hook.sh") {
+		t.Fatalf("expected stderr to surface the existing notify value, got: %s", stderr)
+	}
+
+	data, _ := os.ReadFile(configPath)
+	if string(data) != original {
+		t.Fatalf("expected config to be unchanged after refusal, got: %s", string(data))
+	}
+}
+
+func TestSetupCodexForceOverwritesForeignNotify(t *testing.T) {
+	home := withTempHome(t)
+	configPath := filepath.Join(home, ".codex", "config.toml")
+	os.MkdirAll(filepath.Dir(configPath), 0o755)
+	os.WriteFile(configPath, []byte("notify = [\"bash\", \"/usr/local/bin/my-own-hook.sh\"]\n"), 0o644)
+
+	rc, _, _ := runCLI(t, "setup", "--force", "codex")
+	if rc != exitOK {
+		t.Fatalf("expected exit 0 with --force, got %d", rc)
+	}
+
+	config := readTOMLConfig(t, configPath)
+	notify, _ := config["notify"].([]any)
+	hookPath := filepath.Join(home, ".local", "share", "ai-attn", "hooks", "codex.sh")
+	if len(notify) != 2 || notify[1] != hookPath {
+		t.Fatalf("expected notify to be overwritten with --force, got %v", notify)
+	}
+}
+
+func TestSetupCodexRefusalDoesNotBlockOtherAgents(t *testing.T) {
+	home := withTempHome(t)
+	codexPath := filepath.Join(home, ".codex", "config.toml")
+	os.MkdirAll(filepath.Dir(codexPath), 0o755)
+	os.WriteFile(codexPath, []byte("notify = [\"bash\", \"/usr/local/bin/my-own-hook.sh\"]\n"), 0o644)
+	os.MkdirAll(filepath.Join(home, ".claude"), 0o755)
+
+	rc, stdout, _ := runCLI(t, "setup")
+	if rc == exitOK {
+		t.Fatalf("expected non-zero exit when one agent refuses, got %d", rc)
+	}
+	if !strings.Contains(stdout, "claude: installed") {
+		t.Fatalf("expected claude to still be set up despite codex refusal, stdout: %s", stdout)
 	}
 }
 
@@ -362,31 +425,72 @@ func TestSetupOpencodePreservesExistingPlugins(t *testing.T) {
 	}
 }
 
-func TestSetupOpencodeHandlesJSONC(t *testing.T) {
+func TestSetupOpencodeRefusesJSONCComments(t *testing.T) {
 	home := withTempHome(t)
 	configPath := filepath.Join(home, ".config", "opencode", "opencode.jsonc")
 	os.MkdirAll(filepath.Dir(configPath), 0o755)
-	jsonc := `{
+	original := `{
   // This is a comment
   "theme": "dark",
   /* block comment */
   "plugin": ["/existing/plugin"]
 }
 `
+	os.WriteFile(configPath, []byte(original), 0o644)
+
+	rc, _, stderr := runCLI(t, "setup", "opencode")
+	if rc == exitOK {
+		t.Fatalf("expected non-zero exit when refusing to strip comments, got %d", rc)
+	}
+	if !strings.Contains(stderr, "refusing to overwrite") {
+		t.Fatalf("expected refusal warning in stderr, got: %s", stderr)
+	}
+	if !strings.Contains(stderr, "--force") {
+		t.Fatalf("expected stderr to mention --force escape hatch, got: %s", stderr)
+	}
+
+	data, _ := os.ReadFile(configPath)
+	if string(data) != original {
+		t.Fatalf("expected file unchanged after refusal, got:\n%s", string(data))
+	}
+}
+
+func TestSetupOpencodeForceOverwritesComments(t *testing.T) {
+	home := withTempHome(t)
+	configPath := filepath.Join(home, ".config", "opencode", "opencode.jsonc")
+	os.MkdirAll(filepath.Dir(configPath), 0o755)
+	jsonc := `{
+  // This is a comment
+  "theme": "dark",
+  "plugin": ["/existing/plugin"]
+}
+`
 	os.WriteFile(configPath, []byte(jsonc), 0o644)
 
-	rc, _, _ := runCLI(t, "setup", "opencode")
+	rc, _, _ := runCLI(t, "setup", "--force", "opencode")
 	if rc != exitOK {
-		t.Fatalf("expected exit 0, got %d", rc)
+		t.Fatalf("expected exit 0 with --force, got %d", rc)
 	}
 
 	settings := readSettings(t, configPath)
 	if settings["theme"] != "dark" {
-		t.Fatalf("expected theme=dark preserved, got %v", settings["theme"])
+		t.Fatalf("expected theme=dark preserved with --force, got %v", settings["theme"])
 	}
 	plugins, _ := settings["plugin"].([]any)
 	if len(plugins) != 2 {
 		t.Fatalf("expected 2 plugins, got %d", len(plugins))
+	}
+}
+
+func TestSetupOpencodeIgnoresCommentsInsideStrings(t *testing.T) {
+	home := withTempHome(t)
+	configPath := filepath.Join(home, ".config", "opencode", "opencode.jsonc")
+	os.MkdirAll(filepath.Dir(configPath), 0o755)
+	os.WriteFile(configPath, []byte(`{"note": "see https://example.com/path"}`), 0o644)
+
+	rc, _, stderr := runCLI(t, "setup", "opencode")
+	if rc != exitOK {
+		t.Fatalf("expected exit 0 when comment markers appear only inside strings, got %d; stderr: %s", rc, stderr)
 	}
 }
 

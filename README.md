@@ -197,6 +197,13 @@ Install ai-attn hooks into an agent's config file. With no argument, auto-detect
 
 Safe to re-run: existing ai-attn entries are removed and re-added fresh on each invocation, so non-ai-attn hooks, top-level settings, and other plugins are preserved. `--dry-run` previews changes without writing.
 
+Two cases require explicit opt-in via `--force`:
+
+- **Codex** supports only one global `notify` command. If `~/.codex/config.toml` already has a non-ai-attn `notify`, setup refuses to overwrite it.
+- **OpenCode**'s setup rewrites `opencode.jsonc` as plain JSON, which would drop `//` and `/* */` comments. If the file contains comments, setup refuses unless `--force` is passed.
+
+In both cases the alternative is to wire the hook manually (see [AGENTS.md](AGENTS.md)).
+
 ### `ai-attn status --agent <name> --session-id <id> --cwd <dir>`
 
 Check the state of a specific session. Exits `1` if the session is waiting, `0` if not waiting or not found, `2` on invalid flags.
