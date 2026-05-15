@@ -2,6 +2,18 @@
 
 This file contains step-by-step instructions for AI agents (Claude Code, Codex) to wire ai-attn hooks into their configuration. If you are an AI agent, follow the instructions for the relevant platform below.
 
+## First, try `ai-attn setup`
+
+`ai-attn setup` performs the same wiring described below automatically. Prefer it over editing config files by hand:
+
+```bash
+ai-attn setup              # auto-detect installed agents and wire all found
+ai-attn setup claude       # wire a single agent
+ai-attn setup --dry-run    # preview without writing
+```
+
+It is idempotent (existing ai-attn entries are removed and re-added fresh) and preserves non-ai-attn hooks, top-level settings, and other plugins. Use the manual steps below only if `ai-attn setup` is unavailable, fails for a specific agent, or the user explicitly wants to wire hooks by hand. After running setup, skip to [Post-Setup Verification](#post-setup-verification).
+
 ## Prerequisites
 
 Before wiring hooks, ensure ai-attn is installed. Run `ai-attn doctor` to check. If the command is not found, install it:

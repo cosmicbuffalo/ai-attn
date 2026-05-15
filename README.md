@@ -52,13 +52,19 @@ curl -fsSL https://raw.githubusercontent.com/cosmicbuffalo/ai-attn/main/install.
 
 **Note:** The binary is installed to `~/.local/bin/`. If this directory is not in your `PATH`, the install script will print instructions to add it.
 
-### Wiring Hooks with Your AI Agent
+### Wiring Hooks
 
-After installing, the easiest way to wire hooks is to ask your AI agent to do it:
+`install.sh` runs `ai-attn setup` automatically after installing the binary. Setup auto-detects which agents are installed by checking for their config directories (`~/.claude`, `~/.codex`, `~/.config/opencode`) and wires hooks into those found. Re-running `ai-attn setup` is idempotent — existing ai-attn entries are removed and re-added fresh, so other settings and non-ai-attn hooks are preserved.
 
-> Read AGENTS.md in this repo and follow the instructions.
+If setup didn't run (e.g. the agent was installed after ai-attn) or only some agents were detected, you can run it yourself:
 
-The [AGENTS.md](AGENTS.md) file contains step-by-step instructions that Claude Code, Codex, and other AI agents can follow to update their own config files. If you installed via the curl one-liner (no repo clone), point your agent to the raw URL printed by the install script, or see [AGENTS.md](AGENTS.md) for manual wiring instructions.
+```bash
+ai-attn setup              # auto-detect installed agents
+ai-attn setup claude       # set up one agent explicitly
+ai-attn setup --dry-run    # show what would change without writing
+```
+
+If you'd rather wire hooks by hand, [AGENTS.md](AGENTS.md) has the explicit per-agent steps — those steps can also be handed to an AI agent to perform on your behalf.
 
 ### Setting up Downstream Consumers
 
@@ -180,6 +186,16 @@ Remove stale state files. This runs automatically when `list` or `status` is cal
 ### `ai-attn init-config`
 
 Create the default config file at `~/.config/ai-attn/config.toml` if it doesn't exist. Optional — `ai-attn` runs fine without a config file (defaults apply); use this only when you plan to override defaults.
+
+### `ai-attn setup [--dry-run] [agent]`
+
+Install ai-attn hooks into an agent's config file. With no argument, auto-detects installed agents (`claude`, `codex`, `opencode`) by checking for their config directories and sets up those found. Supported explicit subjects:
+
+- `claude` — writes 10 hook entries into `~/.claude/settings.json`
+- `codex` — sets the `notify` array in `~/.codex/config.toml`
+- `opencode` — appends the bundled plugin path to the `plugin` array in `~/.config/opencode/opencode.jsonc`
+
+Safe to re-run: existing ai-attn entries are removed and re-added fresh on each invocation, so non-ai-attn hooks, top-level settings, and other plugins are preserved. `--dry-run` previews changes without writing.
 
 ### `ai-attn status --agent <name> --session-id <id> --cwd <dir>`
 

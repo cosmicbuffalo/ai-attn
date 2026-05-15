@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - Unreleased
+
+### Added
+
+- `ai-attn setup` command for automated hook installation. Supported subjects: `claude` (writes 10 hook entries into `~/.claude/settings.json`), `codex` (writes the `notify` array into `~/.codex/config.toml`), and `opencode` (adds the bundled plugin path to the `plugin` array in `~/.config/opencode/opencode.jsonc`). With no argument, auto-detects installed agents by checking for their config directories and sets up those found.
+- `--dry-run` flag on `ai-attn setup` to preview the planned changes without writing files.
+- JSONC-aware parsing for OpenCode configs: line/block comments and trailing commas are tolerated when reading `opencode.jsonc`.
+- `PostToolUseFailure` to the Claude hook event list (was handled by the hook script but not previously registered by setup tooling).
+
+### Changed
+
+- `install.sh` now calls `ai-attn setup` after installing the binary, replacing the previous "ask your AI agent to read AGENTS.md" prompt. Wiring is best-effort — if setup fails for any agent, install still completes and the user can re-run `ai-attn setup` manually.
+- `ai-attn doctor` now suggests `ai-attn setup` in its output when an agent's hooks are not wired.
+- Re-running `ai-attn setup` is idempotent for each agent: existing ai-attn entries are removed and re-added fresh, so config drift across upgrades is self-healing. Non-ai-attn hook entries, top-level settings, and other plugins are preserved.
+
+### Note
+
+- OpenCode config files are re-emitted as plain JSON after setup runs. Comments and trailing commas present in the source `opencode.jsonc` are not preserved in the rewritten file.
+
 ## [0.1.0] - 2026-05-02
 
 Initial public release.
@@ -31,4 +50,5 @@ Initial public release.
 - CI pipeline with formatting, linting, and test checks
 - Automated multi-platform release builds via GitHub Actions
 
+[0.2.0]: https://github.com/cosmicbuffalo/ai-attn/releases/tag/v0.2.0
 [0.1.0]: https://github.com/cosmicbuffalo/ai-attn/releases/tag/v0.1.0
