@@ -760,6 +760,21 @@ func TestStripJSONCComments(t *testing.T) {
 			"{\"a\": 1,\n}",
 			"{\"a\": 1}",
 		},
+		{
+			"comma-bracket sequence inside string is preserved",
+			`{"label": "items, ]"}`,
+			`{"label": "items, ]"}`,
+		},
+		{
+			"comma-brace sequence inside string is preserved",
+			`{"msg": "end, }"}`,
+			`{"msg": "end, }"}`,
+		},
+		{
+			"escaped quote does not desync string tracking",
+			`{"a": "say \"hi, ]\""}`,
+			`{"a": "say \"hi, ]\""}`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

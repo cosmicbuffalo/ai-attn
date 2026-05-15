@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -165,17 +164,15 @@ func setupClaude(stdout, stderr io.Writer, dryRun bool) int {
 		hooks[event] = removeAiAttnEntries(val)
 	}
 
-	hookEntry := map[string]any{
-		"type":    "command",
-		"command": hookCmd,
-		"timeout": 10,
-		"async":   true,
-	}
-
 	for _, event := range claudeHookEvents {
 		matcher := map[string]any{
 			"matcher": "",
-			"hooks":   []any{hookEntry},
+			"hooks": []any{map[string]any{
+				"type":    "command",
+				"command": hookCmd,
+				"timeout": 10,
+				"async":   true,
+			}},
 		}
 		existing, _ := hooks[event].([]any)
 		hooks[event] = append(existing, matcher)
@@ -408,10 +405,50 @@ func stripJSONCComments(s string) string {
 		out.WriteByte(s[i])
 		i++
 	}
-	return trailingCommaRe.ReplaceAllString(out.String(), "$1")
+	return stripTrailingCommas(out.String())
 }
 
-var trailingCommaRe = regexp.MustCompile(`,\s*([\]}])`)
+// stripTrailingCommas removes commas immediately followed by ] or } (with any
+// intervening whitespace), but only when they appear outside string literals.
+// It runs after stripJSONCComments has already removed // and /* */ comments,
+// so the only context we need to track here is whether we're inside a string.
+func stripTrailingCommas(s string) string {
+	var out strings.Builder
+	out.Grow(len(s))
+	inString := false
+	for i := 0; i < len(s); i++ {
+		if inString {
+			if s[i] == '\\' && i+1 < len(s) {
+				out.WriteByte(s[i])
+				out.WriteByte(s[i+1])
+				i++
+				continue
+			}
+			if s[i] == '"' {
+				inString = false
+			}
+			out.WriteByte(s[i])
+			continue
+		}
+		if s[i] == '"' {
+			inString = true
+			out.WriteByte(s[i])
+			continue
+		}
+		if s[i] == ',' {
+			j := i + 1
+			for j < len(s) && (s[j] == ' ' || s[j] == '\t' || s[j] == '\n' || s[j] == '\r') {
+				j++
+			}
+			if j < len(s) && (s[j] == ']' || s[j] == '}') {
+				i = j - 1
+				continue
+			}
+		}
+		out.WriteByte(s[i])
+	}
+	return out.String()
+}
 
 func removeAiAttnEntries(eventEntry any) []any {
 	matchers, ok := eventEntry.([]any)
