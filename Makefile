@@ -46,10 +46,8 @@ install: build
 	@echo "Binary:"
 	@echo "  $(BIN_DIR)/$(BIN)"
 	@echo ""
-	@echo "Next step — wire hooks into your AI agent config:"
-	@echo "  Ask your AI agent to read AGENTS.md in this repo and follow the instructions."
-	@echo ""
-	@echo "  Or wire hooks manually — see README.md for details."
+	@echo "Wiring hooks..."
+	@"$(BIN_DIR)/$(BIN)" setup || true
 	@echo ""
 	@echo "Run diagnostics:"
 	@echo "  ai-attn doctor"

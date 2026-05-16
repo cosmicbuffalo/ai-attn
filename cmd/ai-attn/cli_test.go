@@ -53,7 +53,7 @@ func TestUnknownCommandExitsTwo(t *testing.T) {
 func TestSubcommandHelpExitsZero(t *testing.T) {
 	commands := []string{
 		"list", "clear", "logs", "status", "doctor",
-		"gc", "init-config", "set-state", "clear-state", "hook",
+		"gc", "init-config", "set-state", "clear-state", "hook", "setup",
 	}
 	for _, cmd := range commands {
 		t.Run(cmd, func(t *testing.T) {

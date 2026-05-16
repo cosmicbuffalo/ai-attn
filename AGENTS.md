@@ -2,6 +2,23 @@
 
 This file contains step-by-step instructions for AI agents (Claude Code, Codex) to wire ai-attn hooks into their configuration. If you are an AI agent, follow the instructions for the relevant platform below.
 
+## First, try `ai-attn setup`
+
+`ai-attn setup` performs the same wiring described below automatically. Prefer it over editing config files by hand:
+
+```bash
+ai-attn setup              # auto-detect installed agents and wire all found
+ai-attn setup claude       # wire a single agent
+ai-attn setup --dry-run    # preview without writing
+```
+
+It is idempotent (existing ai-attn entries are removed and re-added fresh) and preserves non-ai-attn hooks, top-level settings, and other plugins. Two cases require explicit opt-in via `--force` (or manual wiring per the steps below):
+
+- **Codex** supports only one global `notify` command, so setup refuses if `~/.codex/config.toml` already has a non-ai-attn `notify`.
+- **OpenCode** setup re-emits `opencode.jsonc` as plain JSON, so it refuses when the file contains `//` or `/* */` comments. The Codex and OpenCode manual steps below remain valid alternatives in these cases.
+
+After running setup, skip to [Post-Setup Verification](#post-setup-verification).
+
 ## Prerequisites
 
 Before wiring hooks, ensure ai-attn is installed. Run `ai-attn doctor` to check. If the command is not found, install it:
