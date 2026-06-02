@@ -288,6 +288,7 @@ func writeHookState(state string, agent, sessionID, cwd, reason string, stderr i
 		CWD:       cwd,
 		SessionID: sessionID,
 		PaneID:    os.Getenv("TMUX_PANE"),
+		Socket:    tmuxSocket(),
 	}
 
 	if _, err := writeStateRecord(identity, state, reason); err != nil {

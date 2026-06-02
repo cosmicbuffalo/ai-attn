@@ -33,6 +33,21 @@ func stateFile(key string) string {
 	return filepath.Join(stateDir(), key+".json")
 }
 
+// tmuxSocket returns the tmux server socket path from $TMUX (its first
+// comma-separated field: "<socket>,<pid>,<session>"), or "" when not running
+// inside tmux. Recorded on each state record so consumers can scope a pane ID
+// to the server that owns it — pane IDs are not unique across tmux servers.
+func tmuxSocket() string {
+	v := os.Getenv("TMUX")
+	if v == "" {
+		return ""
+	}
+	if i := strings.IndexByte(v, ','); i >= 0 {
+		return v[:i]
+	}
+	return v
+}
+
 // writeJSON marshals a value to JSON and writes it to the given path.
 func writeJSON(path string, value any) error {
 	data, err := json.Marshal(value)
@@ -74,6 +89,7 @@ func writeStateRecord(identity sessionIdentity, state, reason string) (Record, e
 		CWD:        identity.CWD,
 		SessionID:  identity.SessionID,
 		PaneID:     identity.PaneID,
+		Socket:     identity.Socket,
 	}
 	if err := writeJSON(stateFile(key), record); err != nil {
 		return Record{}, err

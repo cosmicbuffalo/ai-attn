@@ -97,7 +97,8 @@ Polling consumers parse the output of `ai-attn list --json`:
       "age_seconds": 2,
       "cwd": "/work/project",
       "session_id": "codex-session",
-      "pane_id": "%3"
+      "pane_id": "%3",
+      "socket": "/tmp/tmux-1000/default"
     }
   ]
 }
@@ -110,7 +111,8 @@ Each `set-state` call refreshes `updated_at`, so `age_seconds` reflects how long
 | `state` | Current state: `waiting`, `working`, `done`, `stopped`, or empty when cleared. **This is the field consumers should key on.** |
 | `reason` | Agent-specific reason for the state change (e.g., `permission_prompt`, `agent-turn-complete`). |
 | `age_seconds` | Seconds since `updated_at`. |
-| `pane_id` | Auto-populated from `$TMUX_PANE` when the hook runs inside tmux. For relay records (e.g., from [pmux](https://github.com/cosmicbuffalo/pmux)), this is the outer pane where attention should be displayed. |
+| `pane_id` | Auto-populated from `$TMUX_PANE` when the hook runs inside tmux. For relay records from a nested tmux session, this is the outer pane where attention should be displayed. |
+| `socket` | Tmux server socket that owns `pane_id`. Hooks populate it from the first field of `$TMUX`; relay producers can pass it with `--socket`. Empty or missing means the producer was older or outside tmux, and consumers should treat it as matching any server. |
 
 #### Example: tmux status bar indicator
 
@@ -173,7 +175,7 @@ Show recent hook event log entries. `-f` follows the log (like `tail -f`). `-n` 
 
 ### `ai-attn clear [--pane]`
 
-Clear all waiting signals. With `--pane`, clear only the signal for the current tmux pane (`$TMUX_PANE`).
+Clear all waiting signals. With `--pane`, clear only signals for the current tmux pane (`$TMUX_PANE`); records with a non-empty `socket` must also match the current tmux server.
 
 ### `ai-attn test`
 
@@ -212,7 +214,9 @@ Check the state of a specific session. Exits `1` if the session is waiting, `0` 
 
 Record an agent state. `--state` is required and must be one of `working`, `waiting`, `done`, `stopped`. Typically called by hook scripts, not directly.
 
-Flags: `--agent`, `--state`, `--cwd`, `--session-id`, `--pane-id`, `--reason`.
+Flags: `--agent`, `--state`, `--cwd`, `--session-id`, `--pane-id`, `--socket`, `--reason`.
+
+`--socket` defaults to the first field of `$TMUX`. Relay producers that set `--pane-id` to a pane in another tmux server should pass that server's socket path explicitly.
 
 ### `ai-attn clear-state --agent <name> [flags]`
 

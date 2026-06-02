@@ -113,6 +113,7 @@ func cmdTest(stdout, stderr io.Writer) int {
 		CWD:        cwd,
 		SessionID:  sessionID,
 		PaneID:     paneID,
+		Socket:     tmuxSocket(),
 	}
 	if err := writeJSON(stateFile(key), record); err != nil {
 		fmt.Fprintln(stderr, err)

@@ -15,6 +15,14 @@ type Record struct {
 	CWD        string `json:"cwd"`
 	SessionID  string `json:"session_id"`
 	PaneID     string `json:"pane_id"`
+	// Socket scopes PaneID to one tmux server. Pane IDs (%N) are only
+	// unique within a single tmux server, but the state directory is
+	// shared across every server (outer tmux, inner tmux, etc.).
+	// Consumers must ignore records whose Socket names a different server,
+	// otherwise a %15 written by one server matches an unrelated %15 in
+	// another. Empty means "unknown server" — treated as matching any, so
+	// records from older producers degrade to the previous behaviour.
+	Socket string `json:"socket,omitempty"`
 }
 
 type listPayload struct {
@@ -28,6 +36,7 @@ type sessionIdentity struct {
 	CWD       string
 	SessionID string
 	PaneID    string
+	Socket    string
 }
 
 var version = "dev"

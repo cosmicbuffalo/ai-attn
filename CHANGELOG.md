@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-06-24
+
+### Added
+
+- `socket` field on state records, plus a `--socket` flag on `set-state`/`clear-state`, recording the tmux server that owns `pane_id`. Pane IDs (`%N`) are only unique within a single tmux server, but the state directory is shared across servers, so a `%15` written by one server could be matched against an unrelated `%15` in another. Hook-driven records populate it automatically from `$TMUX`; relay producers pass it explicitly. Empty `socket` (older producers) is treated by consumers as matching any server, so behaviour degrades gracefully.
+
+## [0.2.1] - 2026-05-27
+
+### Fixed
+
+- Truncate hook.log in place instead of rotating to .1
+
 ## [0.2.0] - 2026-05-16
 
 ### Added
@@ -57,5 +69,7 @@ Initial public release.
 - CI pipeline with formatting, linting, and test checks
 - Automated multi-platform release builds via GitHub Actions
 
+[0.3.0]: https://github.com/cosmicbuffalo/ai-attn/releases/tag/v0.3.0
+[0.2.1]: https://github.com/cosmicbuffalo/ai-attn/releases/tag/v0.2.1
 [0.2.0]: https://github.com/cosmicbuffalo/ai-attn/releases/tag/v0.2.0
 [0.1.0]: https://github.com/cosmicbuffalo/ai-attn/releases/tag/v0.1.0
