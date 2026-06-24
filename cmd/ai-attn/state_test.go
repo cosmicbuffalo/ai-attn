@@ -309,6 +309,88 @@ func TestStatusMissingStateFile(t *testing.T) {
 	}
 }
 
+// TestStatusScopesBySocket documents a false-positive path: a per-pane
+// consumer querying one tmux server should not report a waiting record that
+// belongs to another server whose pane ID happens to collide.
+func TestStatusScopesBySocket(t *testing.T) {
+	withTempHome(t)
+	t.Setenv("TMUX_PANE", "%15")
+	t.Setenv("TMUX", "/tmp/tmux-1000/outer,12345,0")
+	if err := ensureStateDir(); err != nil {
+		t.Fatal(err)
+	}
+
+	key := sessionKey("codex", "shared-session", "%15")
+	record := Record{
+		Agent:      "codex",
+		SessionKey: key,
+		State:      "waiting",
+		Reason:     "permission_request",
+		UpdatedAt:  time.Now().Unix(),
+		CWD:        "/work",
+		SessionID:  "shared-session",
+		PaneID:     "%15",
+		Socket:     "/tmp/tmux-1000/inner",
+	}
+	if err := writeJSON(stateFile(key), record); err != nil {
+		t.Fatal(err)
+	}
+
+	rc, stdout, _ := runCLI(t,
+		"status",
+		"--agent", "codex",
+		"--session-id", "shared-session",
+		"--pane-id", "%15",
+		"--socket", "/tmp/tmux-1000/outer",
+	)
+	if rc != exitOK {
+		t.Fatalf("expected foreign-socket record to be treated as not waiting, rc=%d output=%s", rc, stdout)
+	}
+	if strings.Contains(stdout, "state=waiting") {
+		t.Fatalf("expected status not to report a foreign-socket wait: %s", stdout)
+	}
+}
+
+// TestStatusMatchesLegacyEmptySocket verifies backward compatibility with
+// records written before socket scoping existed.
+func TestStatusMatchesLegacyEmptySocket(t *testing.T) {
+	withTempHome(t)
+	t.Setenv("TMUX_PANE", "%15")
+	t.Setenv("TMUX", "/tmp/tmux-1000/outer,12345,0")
+	if err := ensureStateDir(); err != nil {
+		t.Fatal(err)
+	}
+
+	key := sessionKey("codex", "legacy-session", "%15")
+	record := Record{
+		Agent:      "codex",
+		SessionKey: key,
+		State:      "waiting",
+		Reason:     "permission_request",
+		UpdatedAt:  time.Now().Unix(),
+		CWD:        "/work",
+		SessionID:  "legacy-session",
+		PaneID:     "%15",
+	}
+	if err := writeJSON(stateFile(key), record); err != nil {
+		t.Fatal(err)
+	}
+
+	rc, stdout, _ := runCLI(t,
+		"status",
+		"--agent", "codex",
+		"--session-id", "legacy-session",
+		"--pane-id", "%15",
+		"--socket", "/tmp/tmux-1000/outer",
+	)
+	if rc != exitError {
+		t.Fatalf("expected legacy empty-socket record to still report waiting, rc=%d output=%s", rc, stdout)
+	}
+	if !strings.Contains(stdout, "state=waiting") {
+		t.Fatalf("expected legacy empty-socket wait to match: %s", stdout)
+	}
+}
+
 // TestClearSkipsWorkingState verifies that clear only removes waiting/done records, not working ones.
 func TestClearSkipsWorkingState(t *testing.T) {
 	withTempHome(t)
@@ -354,5 +436,80 @@ func TestClearSkipsWorkingState(t *testing.T) {
 	// Waiting record should be removed
 	if _, err := os.Stat(stateFile(waitingKey)); !os.IsNotExist(err) {
 		t.Fatalf("expected waiting state file to be cleared, err=%v", err)
+	}
+}
+
+// TestClearPaneScopesBySocket verifies that pane-scoped clearing does not
+// delete a record from another tmux server whose pane ID happens to collide.
+func TestClearPaneScopesBySocket(t *testing.T) {
+	withTempHome(t)
+	t.Setenv("TMUX_PANE", "%15")
+	t.Setenv("TMUX", "/tmp/tmux-1000/outer,12345,0")
+	if err := ensureStateDir(); err != nil {
+		t.Fatal(err)
+	}
+
+	ownKey := sessionKey("claude", "own-socket", "")
+	ownRecord := Record{
+		Agent:      "claude",
+		SessionKey: ownKey,
+		State:      "waiting",
+		Reason:     "permission_request",
+		UpdatedAt:  time.Now().Unix(),
+		CWD:        "/work",
+		SessionID:  "own-socket",
+		PaneID:     "%15",
+		Socket:     "/tmp/tmux-1000/outer",
+	}
+	if err := writeJSON(stateFile(ownKey), ownRecord); err != nil {
+		t.Fatal(err)
+	}
+
+	legacyKey := sessionKey("claude", "legacy-socket", "")
+	legacyRecord := Record{
+		Agent:      "claude",
+		SessionKey: legacyKey,
+		State:      "waiting",
+		Reason:     "permission_request",
+		UpdatedAt:  time.Now().Unix(),
+		CWD:        "/work",
+		SessionID:  "legacy-socket",
+		PaneID:     "%15",
+	}
+	if err := writeJSON(stateFile(legacyKey), legacyRecord); err != nil {
+		t.Fatal(err)
+	}
+
+	foreignKey := sessionKey("claude", "foreign-socket", "")
+	foreignRecord := Record{
+		Agent:      "claude",
+		SessionKey: foreignKey,
+		State:      "waiting",
+		Reason:     "permission_request",
+		UpdatedAt:  time.Now().Unix(),
+		CWD:        "/work",
+		SessionID:  "foreign-socket",
+		PaneID:     "%15",
+		Socket:     "/tmp/tmux-1000/inner",
+	}
+	if err := writeJSON(stateFile(foreignKey), foreignRecord); err != nil {
+		t.Fatal(err)
+	}
+
+	rc, stdout, _ := runCLI(t, "clear", "--pane")
+	if rc != exitOK {
+		t.Fatalf("clear --pane rc=%d output=%s", rc, stdout)
+	}
+	if !strings.Contains(stdout, "cleared=2") {
+		t.Fatalf("expected exactly own and legacy records to clear, got %s", stdout)
+	}
+	if _, err := os.Stat(stateFile(ownKey)); !os.IsNotExist(err) {
+		t.Fatalf("expected own-socket record to be cleared, err=%v", err)
+	}
+	if _, err := os.Stat(stateFile(legacyKey)); !os.IsNotExist(err) {
+		t.Fatalf("expected legacy record to be cleared, err=%v", err)
+	}
+	if _, err := os.Stat(stateFile(foreignKey)); err != nil {
+		t.Fatalf("expected foreign-socket record to survive, err=%v", err)
 	}
 }

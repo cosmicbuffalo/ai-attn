@@ -22,6 +22,7 @@ func registerIdentityFlags(fs *flag.FlagSet) *sessionIdentity {
 	fs.StringVar(&flags.CWD, "cwd", cwd, "Working directory")
 	fs.StringVar(&flags.SessionID, "session-id", "", "Session identifier")
 	fs.StringVar(&flags.PaneID, "pane-id", os.Getenv("TMUX_PANE"), "Tmux pane ID")
+	fs.StringVar(&flags.Socket, "socket", tmuxSocket(), "Tmux server socket path that owns --pane-id")
 	return flags
 }
 
@@ -68,6 +69,7 @@ func cmdSetState(args []string, stdout, stderr io.Writer, waiting bool) int {
 		CWD:       identityFlags.CWD,
 		SessionID: identityFlags.SessionID,
 		PaneID:    identityFlags.PaneID,
+		Socket:    identityFlags.Socket,
 	}
 	record, err := writeStateRecord(identity, state, reason)
 	if err != nil {
@@ -105,12 +107,20 @@ func cmdStatus(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "state= key=%s reason=invalid age=na\n", *key)
 		return exitOK
 	}
+	if !socketMatches(record.Socket, identityFlags.Socket) {
+		fmt.Fprintf(stdout, "state= key=%s reason=socket_mismatch age=na\n", *key)
+		return exitOK
+	}
 	normalizeRecord(&record, time.Now().Unix())
 	fmt.Fprintf(stdout, "state=%s key=%s reason=%s age=%ds\n", record.State, *key, record.Reason, record.AgeSeconds)
 	if record.State == "waiting" {
 		return exitError
 	}
 	return exitOK
+}
+
+func socketMatches(recordSocket, querySocket string) bool {
+	return recordSocket == "" || querySocket == "" || recordSocket == querySocket
 }
 
 // normalizeRecord computes and sets the AgeSeconds field on a Record relative to the given timestamp.
@@ -336,12 +346,14 @@ func cmdClear(args []string, stdout, stderr io.Writer) int {
 	}
 
 	currentPane := ""
+	currentSocket := ""
 	if *paneOnly {
 		currentPane = os.Getenv("TMUX_PANE")
 		if currentPane == "" {
 			fmt.Fprintln(stderr, "clear --pane: $TMUX_PANE is not set")
 			return exitUsage
 		}
+		currentSocket = tmuxSocket()
 	}
 
 	cleared := 0
@@ -354,8 +366,13 @@ func cmdClear(args []string, stdout, stderr io.Writer) int {
 		if err != nil || (record.State != "waiting" && record.State != "done") {
 			continue
 		}
-		if *paneOnly && record.PaneID != currentPane {
-			continue
+		if *paneOnly {
+			if record.PaneID != currentPane {
+				continue
+			}
+			if record.Socket != "" && record.Socket != currentSocket {
+				continue
+			}
 		}
 		if err := os.Remove(path); err != nil {
 			fmt.Fprintf(stderr, "warning: failed to clear %s: %s\n", entry.Name(), err)
