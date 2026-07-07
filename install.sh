@@ -98,6 +98,16 @@ download_binary() {
   trap - RETURN
 }
 
+source_build_version() {
+  if [ "$FROM_REPO" -eq 1 ] && [ -f "$SCRIPT_DIR/VERSION" ]; then
+    local source_version
+    source_version="$(tr -d '[:space:]' < "$SCRIPT_DIR/VERSION")"
+    if [ -n "$source_version" ]; then
+      printf 'v%s\n' "$source_version"
+    fi
+  fi
+}
+
 build_from_source() {
   if [ "$FROM_REPO" -ne 1 ]; then
     echo "Cannot build from source: not running from a cloned repo." >&2
@@ -108,14 +118,19 @@ build_from_source() {
     return 1
   fi
   echo "Building from source..."
-  local tmp_bin
+  local build_version ldflags tmp_bin
+  build_version="$(source_build_version)"
+  ldflags="-s -w"
+  if [ -n "$build_version" ]; then
+    ldflags="${ldflags} -X main.version=${build_version}"
+  fi
   tmp_bin="$(mktemp "${INSTALL_DIR}/bin/ai-attn.tmp.XXXXXX")"
   trap 'rm -f "$tmp_bin"' RETURN
   (
     cd "$SCRIPT_DIR"
     GOCACHE="${GOCACHE:-/tmp/ai-attn-go-cache}" \
     GOMODCACHE="${GOMODCACHE:-/tmp/ai-attn-go-mod-cache}" \
-    go build -ldflags "-s -w" -o "$tmp_bin" ./cmd/ai-attn
+    go build -ldflags "$ldflags" -o "$tmp_bin" ./cmd/ai-attn
   )
   mv "$tmp_bin" "$TARGET_BIN"
   trap - RETURN
@@ -125,6 +140,17 @@ verify_installed_binary() {
   [ -s "$TARGET_BIN" ] || return 1
   [ -x "$TARGET_BIN" ] || return 1
   "$TARGET_BIN" version >/dev/null 2>&1
+}
+
+read_ai_attn_version() {
+  local bin="$1" version_output
+  version_output="$("$bin" version 2>/dev/null || true)"
+  version_output="${version_output#ai-attn }"
+  if [ -n "$version_output" ]; then
+    printf '%s\n' "$version_output"
+  else
+    printf 'unknown\n'
+  fi
 }
 
 # When installing from a local checkout, prefer the current source tree over
@@ -167,6 +193,7 @@ if ! verify_installed_binary; then
     exit 1
   fi
 fi
+installed_version="$(read_ai_attn_version "$TARGET_BIN")"
 
 # Download a file from the repo (used when not running from a clone)
 download_file() {
@@ -214,7 +241,7 @@ ln -sf "$TARGET_BIN" "$BIN_DIR/ai-attn"
 # `ai-attn init-config` themselves.
 
 cat <<EOF
-Installed ai-attn.
+Installed ai-attn ${installed_version}.
 
 Binary:
   $BIN_DIR/ai-attn
@@ -235,7 +262,24 @@ EOF
 
 # Check if BIN_DIR is in PATH
 case ":${PATH}:" in
-  *":${BIN_DIR}:"*) ;;
+  *":${BIN_DIR}:"*)
+    resolved_bin="$(command -v ai-attn 2>/dev/null || true)"
+    if [ -n "$resolved_bin" ] && [ "$resolved_bin" != "$BIN_DIR/ai-attn" ]; then
+      resolved_version="$(read_ai_attn_version "$resolved_bin")"
+      if [ "$resolved_version" != "$installed_version" ]; then
+        cat <<EOF
+
+NOTE: your shell currently resolves ai-attn to:
+  $resolved_bin ($resolved_version)
+
+The installer updated:
+  $BIN_DIR/ai-attn ($installed_version)
+
+Move $BIN_DIR earlier in PATH or remove the older binary if you want \`ai-attn\` to run this version.
+EOF
+      fi
+    fi
+    ;;
   *)
     echo ""
     echo "NOTE: $BIN_DIR is not in your PATH."
