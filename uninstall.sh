@@ -24,7 +24,12 @@ fi
 
 codex_toml="${HOME}/.codex/config.toml"
 if [ -f "$codex_toml" ] && grep -q "ai-attn" "$codex_toml" 2>/dev/null; then
-  echo "    - Codex:       $codex_toml (notify key)"
+  echo "    - Codex:       $codex_toml (legacy notify key)"
+fi
+
+codex_hooks="${HOME}/.codex/hooks.json"
+if [ -f "$codex_hooks" ] && grep -q "ai-attn" "$codex_hooks" 2>/dev/null; then
+  echo "    - Codex:       $codex_hooks (hooks section)"
 fi
 
 opencode_jsonc="${HOME}/.config/opencode/opencode.jsonc"

@@ -182,6 +182,26 @@ func TestHookCodexHooksEnginePayload(t *testing.T) {
 	}
 }
 
+func TestHookCodexToolUseEventsSetWorking(t *testing.T) {
+	withTempHome(t)
+
+	for _, event := range []string{"PreToolUse", "PostToolUse"} {
+		t.Run(event, func(t *testing.T) {
+			payload := `{"hook_event_name":"` + event + `","session_id":"tool-use-` + event + `","cwd":"/code","tool_name":"Bash"}`
+			var stdout, stderr bytes.Buffer
+			rc := run([]string{"hook", "--agent", "codex"}, strings.NewReader(payload), &stdout, &stderr)
+			if rc != exitOK {
+				t.Fatalf("hook rc=%d stderr=%s", rc, stderr.String())
+			}
+
+			_, statusOut, _ := runCLI(t, "status", "--agent", "codex", "--session-id", "tool-use-"+event, "--cwd", "/code")
+			if !strings.Contains(statusOut, "state=working") {
+				t.Fatalf("expected working: out=%s", statusOut)
+			}
+		})
+	}
+}
+
 // TestHookCodexUnknownEventIsNoop verifies that an unrecognized Codex event does not create a state file.
 func TestHookCodexUnknownEventIsNoop(t *testing.T) {
 	withTempHome(t)
@@ -217,6 +237,8 @@ func TestMatchCodexEvent(t *testing.T) {
 		// New hooks engine events (PascalCase)
 		{"UserPromptSubmit", "working", true},
 		{"PermissionRequest", "waiting", true},
+		{"PreToolUse", "working", true},
+		{"PostToolUse", "working", true},
 		{"Stop", "done", true},
 	}
 	for _, tt := range tests {

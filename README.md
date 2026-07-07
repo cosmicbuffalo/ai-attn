@@ -194,17 +194,16 @@ Create the default config file at `~/.config/ai-attn/config.toml` if it doesn't 
 Install ai-attn hooks into an agent's config file. With no argument, auto-detects installed agents (`claude`, `codex`, `opencode`) by checking for their config directories and sets up those found. Supported explicit subjects:
 
 - `claude` — writes 11 hook entries into `~/.claude/settings.json`
-- `codex` — sets the `notify` array in `~/.codex/config.toml`
+- `codex` — writes `UserPromptSubmit`, `PermissionRequest`, `PreToolUse`, `PostToolUse`, and `Stop` hook entries into `~/.codex/hooks.json`
 - `opencode` — appends the bundled plugin path to the `plugin` array in `~/.config/opencode/opencode.jsonc`
 
 Safe to re-run: existing ai-attn entries are removed and re-added fresh on each invocation, so non-ai-attn hooks, top-level settings, and other plugins are preserved. `--dry-run` previews changes without writing.
 
-Two cases require explicit opt-in via `--force`:
+One case requires explicit opt-in via `--force`:
 
-- **Codex** supports only one global `notify` command. If `~/.codex/config.toml` already has a non-ai-attn `notify`, setup refuses to overwrite it.
 - **OpenCode**'s setup rewrites `opencode.jsonc` as plain JSON, which would drop `//` and `/* */` comments. If the file contains comments, setup refuses unless `--force` is passed.
 
-In both cases the alternative is to wire the hook manually (see [AGENTS.md](AGENTS.md)).
+The alternative is to wire the hook manually (see [AGENTS.md](AGENTS.md)).
 
 ### `ai-attn status --agent <name> --session-id <id> --cwd <dir>`
 
@@ -224,7 +223,7 @@ Clear the recorded state for a session (writes an empty state). Same flags as `s
 
 ### `ai-attn hook --agent <name>`
 
-Process a hook event end-to-end. Reads the event payload from stdin (JSON for Claude Code) or argv (for Codex). This is the command invoked by the hook scripts — not typically called directly.
+Process a hook event end-to-end. Reads the event payload from stdin. The bundled Codex hook script also accepts an argv event string as a fallback for legacy notify-style wiring. This is the command invoked by hook scripts — not typically called directly.
 
 ### Exit Codes
 
@@ -266,7 +265,7 @@ bash ~/.local/share/ai-attn/uninstall.sh --purge  # also removes state files and
 **Note:** The uninstall script removes the ai-attn binary and hook scripts, but does **not** remove hook wiring from your AI agent configs. You may need to manually clean up:
 
 - **Claude Code:** Remove the ai-attn hook entries from `~/.claude/settings.json` (in the `hooks` section).
-- **Codex:** Remove the ai-attn hook entries from `~/.codex/config.toml`.
+- **Codex:** Remove the ai-attn hook entries from `~/.codex/hooks.json`. Also remove any old ai-attn `notify` entry from `~/.codex/config.toml` if it remains from a pre-hooks setup.
 - **OpenCode:** Remove the `~/.local/share/ai-attn/plugins/opencode` entry from the `plugin` array in `~/.config/opencode/opencode.jsonc`.
 
 Leftover hook entries are harmless — the hook scripts always `exit 0` even if ai-attn is missing — but you can remove them for cleanliness.

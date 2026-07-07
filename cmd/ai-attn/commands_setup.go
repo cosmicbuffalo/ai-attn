@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -28,13 +27,21 @@ var claudeHookEvents = []string{
 	"StopFailure",
 }
 
+var codexHookEvents = []string{
+	"UserPromptSubmit",
+	"PermissionRequest",
+	"PreToolUse",
+	"PostToolUse",
+	"Stop",
+}
+
 var allAgents = []string{"claude", "codex", "opencode"}
 
 func cmdSetup(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("setup", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	dryRun := fs.Bool("dry-run", false, "Show what would be done without writing files")
-	force := fs.Bool("force", false, "Overwrite a foreign codex notify command instead of refusing")
+	force := fs.Bool("force", false, "Overwrite config files when setup would otherwise refuse")
 	fs.Usage = func() {
 		fmt.Fprintln(fs.Output(), `Usage: ai-attn setup [--dry-run] [--force] [agent]
 
@@ -45,13 +52,9 @@ preserving all other settings and non-ai-attn hooks.
 If no agent is specified, auto-detects installed agents and sets up
 those found.
 
-Codex supports only one global notify command. If ~/.codex/config.toml
-already has a notify entry that is not an ai-attn hook, setup refuses
-to overwrite it. Pass --force to overwrite anyway.
-
 Supported agents:
   claude    Install hooks into ~/.claude/settings.json
-  codex     Install notify hook into ~/.codex/config.toml
+  codex     Install hooks into ~/.codex/hooks.json
   opencode  Install plugin into ~/.config/opencode/opencode.jsonc`)
 	}
 	if err := fs.Parse(args); err != nil {
@@ -204,59 +207,91 @@ func setupClaude(stdout, stderr io.Writer, dryRun bool) int {
 }
 
 func setupCodex(stdout, stderr io.Writer, dryRun, force bool) int {
+	hooksPath := filepath.Join(homeDir(), ".codex", "hooks.json")
 	configPath := filepath.Join(homeDir(), ".codex", "config.toml")
 	hookPath := filepath.Join(homeDir(), ".local", "share", "ai-attn", "hooks", "codex.sh")
+	hookCmd := "bash " + shellQuote(hookPath)
 
 	if !dryRun {
-		if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(hooksPath), 0o755); err != nil {
 			fmt.Fprintf(stderr, "failed to create directory: %v\n", err)
 			return exitError
 		}
 	}
 
-	var config map[string]any
-
-	data, err := os.ReadFile(configPath)
+	var settings map[string]any
+	data, err := os.ReadFile(hooksPath)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			fmt.Fprintf(stderr, "failed to read %s: %v\n", configPath, err)
+			fmt.Fprintf(stderr, "failed to read %s: %v\n", hooksPath, err)
 			return exitError
 		}
-		config = map[string]any{}
+		settings = map[string]any{}
 	} else {
-		if err := toml.Unmarshal(data, &config); err != nil {
-			fmt.Fprintf(stderr, "failed to parse %s: %v\n", configPath, err)
+		if err := json.Unmarshal(data, &settings); err != nil {
+			fmt.Fprintf(stderr, "failed to parse %s: %v\n", hooksPath, err)
 			return exitError
 		}
 	}
 
-	if existing, ok := config["notify"].([]any); ok && !notifyIsAiAttn(existing) && !force {
-		fmt.Fprintf(stderr, "codex: refusing to overwrite existing notify in %s\n", configPath)
-		fmt.Fprintf(stderr, "  existing: %s\n", formatNotify(existing))
-		fmt.Fprintln(stderr, "  codex supports only one global notify command. Remove the line manually,")
-		fmt.Fprintln(stderr, "  or re-run with --force to overwrite.")
+	hooks, _ := settings["hooks"].(map[string]any)
+	if hooks == nil {
+		hooks = map[string]any{}
+	}
+
+	for event, val := range hooks {
+		hooks[event] = removeCodexAiAttnEntries(val)
+	}
+
+	for _, event := range codexHookEvents {
+		matcher := map[string]any{
+			"matcher": "",
+			"hooks": []any{map[string]any{
+				"type":          "command",
+				"command":       hookCmd,
+				"timeout":       10,
+				"statusMessage": "Updating ai-attn",
+			}},
+		}
+		existing, _ := hooks[event].([]any)
+		hooks[event] = append(existing, matcher)
+	}
+	settings["hooks"] = hooks
+
+	out, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		fmt.Fprintf(stderr, "failed to marshal settings: %v\n", err)
 		return exitError
 	}
+	out = append(out, '\n')
 
-	config["notify"] = []any{"bash", hookPath}
-
-	var buf bytes.Buffer
-	if err := toml.NewEncoder(&buf).Encode(config); err != nil {
-		fmt.Fprintf(stderr, "failed to marshal config: %v\n", err)
+	cleanup, cleanupChanged, cleanupErr := cleanupLegacyCodexConfig(configPath, force)
+	if cleanupErr != nil {
+		fmt.Fprintln(stderr, cleanupErr)
 		return exitError
 	}
 
 	if dryRun {
-		fmt.Fprintf(stdout, "codex: would install hook in %s (dry-run)\n", configPath)
+		fmt.Fprintf(stdout, "codex: would install %d hooks in %s (dry-run)\n",
+			len(codexHookEvents), hooksPath)
+		if cleanupChanged {
+			fmt.Fprintf(stdout, "codex: would remove legacy ai-attn notify from %s (dry-run)\n", configPath)
+		}
 		return exitOK
 	}
 
-	if err := os.WriteFile(configPath, buf.Bytes(), 0o644); err != nil {
-		fmt.Fprintf(stderr, "failed to write %s: %v\n", configPath, err)
+	if err := os.WriteFile(hooksPath, out, 0o644); err != nil {
+		fmt.Fprintf(stderr, "failed to write %s: %v\n", hooksPath, err)
 		return exitError
 	}
+	if cleanupChanged {
+		if err := os.WriteFile(configPath, cleanup, 0o644); err != nil {
+			fmt.Fprintf(stderr, "failed to write %s: %v\n", configPath, err)
+			return exitError
+		}
+	}
 
-	fmt.Fprintf(stdout, "codex: installed hook in %s\n", configPath)
+	fmt.Fprintf(stdout, "codex: installed %d hooks in %s\n", len(codexHookEvents), hooksPath)
 	return exitOK
 }
 
@@ -451,21 +486,108 @@ func stripTrailingCommas(s string) string {
 }
 
 func removeAiAttnEntries(eventEntry any) []any {
+	return removeHookEntries(eventEntry, func(command string) bool {
+		return strings.Contains(command, claudeHookSuffix)
+	})
+}
+
+func removeCodexAiAttnEntries(eventEntry any) []any {
+	return removeHookEntries(eventEntry, codexCommandIsAiAttn)
+}
+
+func removeHookEntries(eventEntry any, matches func(string) bool) []any {
 	matchers, ok := eventEntry.([]any)
 	if !ok {
 		return nil
 	}
 	var kept []any
 	for _, m := range matchers {
-		if matcherHasAiAttn(m) {
+		matcher, ok := m.(map[string]any)
+		if !ok {
+			kept = append(kept, m)
 			continue
 		}
-		kept = append(kept, m)
+
+		hookList, ok := matcher["hooks"].([]any)
+		if !ok {
+			if command, ok := matcher["command"].(string); ok && matches(command) {
+				continue
+			}
+			kept = append(kept, m)
+			continue
+		}
+
+		filtered := make([]any, 0, len(hookList))
+		for _, h := range hookList {
+			hook, ok := h.(map[string]any)
+			if !ok {
+				filtered = append(filtered, h)
+				continue
+			}
+			if command, ok := hook["command"].(string); ok && matches(command) {
+				continue
+			}
+			filtered = append(filtered, h)
+		}
+		if len(filtered) == 0 {
+			continue
+		}
+		matcher["hooks"] = filtered
+		kept = append(kept, matcher)
 	}
 	return kept
 }
 
-func notifyIsAiAttn(notify []any) bool {
+func codexCommandIsAiAttn(command string) bool {
+	return strings.Contains(command, codexHookSuffix) ||
+		strings.Contains(command, "ai-attn hook --agent codex")
+}
+
+func cleanupLegacyCodexConfig(configPath string, force bool) ([]byte, bool, error) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("failed to read %s: %v", configPath, err)
+	}
+
+	var config map[string]any
+	if err := toml.Unmarshal(data, &config); err != nil {
+		return nil, false, fmt.Errorf("failed to parse %s: %v", configPath, err)
+	}
+
+	changed := false
+	if existing, ok := config["notify"].([]any); ok && legacyNotifyIsAiAttn(existing) {
+		delete(config, "notify")
+		changed = true
+	}
+
+	if features, ok := config["features"].(map[string]any); ok {
+		if raw, ok := features["codex_hooks"]; ok {
+			if _, hasHooks := features["hooks"]; !hasHooks {
+				features["hooks"] = raw
+			}
+			delete(features, "codex_hooks")
+			changed = true
+		}
+		if len(features) == 0 {
+			delete(config, "features")
+		}
+	}
+
+	if !changed {
+		return nil, false, nil
+	}
+
+	var buf strings.Builder
+	if err := toml.NewEncoder(&buf).Encode(config); err != nil {
+		return nil, false, fmt.Errorf("failed to marshal config: %v", err)
+	}
+	return []byte(buf.String()), true, nil
+}
+
+func legacyNotifyIsAiAttn(notify []any) bool {
 	for _, v := range notify {
 		if s, ok := v.(string); ok && strings.Contains(s, codexHookSuffix) {
 			return true
@@ -474,35 +596,9 @@ func notifyIsAiAttn(notify []any) bool {
 	return false
 }
 
-func formatNotify(notify []any) string {
-	parts := make([]string, 0, len(notify))
-	for _, v := range notify {
-		if s, ok := v.(string); ok {
-			parts = append(parts, fmt.Sprintf("%q", s))
-		} else {
-			parts = append(parts, fmt.Sprintf("%v", v))
-		}
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
 	}
-	return "[" + strings.Join(parts, ", ") + "]"
-}
-
-func matcherHasAiAttn(m any) bool {
-	matcher, ok := m.(map[string]any)
-	if !ok {
-		return false
-	}
-	hookList, ok := matcher["hooks"].([]any)
-	if !ok {
-		return false
-	}
-	for _, h := range hookList {
-		hook, ok := h.(map[string]any)
-		if !ok {
-			continue
-		}
-		if cmd, ok := hook["command"].(string); ok && strings.Contains(cmd, claudeHookSuffix) {
-			return true
-		}
-	}
-	return false
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
