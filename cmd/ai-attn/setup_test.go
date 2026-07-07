@@ -46,6 +46,30 @@ func readTOMLConfig(t *testing.T, path string) map[string]any {
 	return config
 }
 
+func assertCodexHooksInstalled(t *testing.T, settings map[string]any) {
+	t.Helper()
+	for _, event := range codexHookEvents {
+		if countMatchers(t, settings, event) != 1 {
+			t.Fatalf("expected 1 matcher for %s, got %d", event, countMatchers(t, settings, event))
+		}
+		hooks := settings["hooks"].(map[string]any)
+		matchers := hooks[event].([]any)
+		matcher := matchers[0].(map[string]any)
+		hookList := matcher["hooks"].([]any)
+		if len(hookList) != 1 {
+			t.Fatalf("expected 1 hook for %s, got %d", event, len(hookList))
+		}
+		hook := hookList[0].(map[string]any)
+		if hook["type"] != "command" {
+			t.Fatalf("expected command hook for %s, got %v", event, hook["type"])
+		}
+		command, _ := hook["command"].(string)
+		if !strings.Contains(command, "ai-attn/hooks/codex.sh") {
+			t.Fatalf("expected codex hook command for %s, got %q", event, command)
+		}
+	}
+}
+
 // --- Claude tests ---
 
 func TestSetupClaudeFreshInstall(t *testing.T) {
@@ -207,27 +231,13 @@ func TestSetupCodexFreshInstall(t *testing.T) {
 	if rc != exitOK {
 		t.Fatalf("expected exit 0, got %d", rc)
 	}
-	if !strings.Contains(stdout, "codex: installed hook") {
+	if !strings.Contains(stdout, "codex: installed 5 hooks") {
 		t.Fatalf("unexpected output: %s", stdout)
 	}
 
-	configPath := filepath.Join(home, ".codex", "config.toml")
-	config := readTOMLConfig(t, configPath)
-
-	notify, ok := config["notify"].([]any)
-	if !ok {
-		t.Fatalf("expected notify array, got %T", config["notify"])
-	}
-	if len(notify) != 2 {
-		t.Fatalf("expected 2 elements in notify, got %d", len(notify))
-	}
-	if notify[0] != "bash" {
-		t.Fatalf("expected notify[0]=bash, got %v", notify[0])
-	}
-	hookPath := filepath.Join(home, ".local", "share", "ai-attn", "hooks", "codex.sh")
-	if notify[1] != hookPath {
-		t.Fatalf("expected notify[1]=%s, got %v", hookPath, notify[1])
-	}
+	hooksPath := filepath.Join(home, ".codex", "hooks.json")
+	settings := readSettings(t, hooksPath)
+	assertCodexHooksInstalled(t, settings)
 }
 
 func TestSetupCodexIdempotent(t *testing.T) {
@@ -238,16 +248,9 @@ func TestSetupCodexIdempotent(t *testing.T) {
 	runCLI(t, "setup", "codex")
 	runCLI(t, "setup", "codex")
 
-	configPath := filepath.Join(home, ".codex", "config.toml")
-	config := readTOMLConfig(t, configPath)
-
-	notify, ok := config["notify"].([]any)
-	if !ok {
-		t.Fatalf("expected notify array, got %T", config["notify"])
-	}
-	if len(notify) != 2 {
-		t.Fatalf("expected 2 elements in notify after 3 runs, got %d", len(notify))
-	}
+	hooksPath := filepath.Join(home, ".codex", "hooks.json")
+	settings := readSettings(t, hooksPath)
+	assertCodexHooksInstalled(t, settings)
 }
 
 func TestSetupCodexPreservesOtherKeys(t *testing.T) {
@@ -268,12 +271,12 @@ func TestSetupCodexPreservesOtherKeys(t *testing.T) {
 	if config["approval_policy"] != "always" {
 		t.Fatalf("expected approval_policy=always, got %v", config["approval_policy"])
 	}
-	if _, ok := config["notify"]; !ok {
-		t.Fatal("expected notify key to be added")
+	if _, ok := config["notify"]; ok {
+		t.Fatal("did not expect setup codex to add notify")
 	}
 }
 
-func TestSetupCodexReplacesStaleAiAttnNotify(t *testing.T) {
+func TestSetupCodexRemovesStaleAiAttnNotify(t *testing.T) {
 	home := withTempHome(t)
 	configPath := filepath.Join(home, ".codex", "config.toml")
 	os.MkdirAll(filepath.Dir(configPath), 0o755)
@@ -286,14 +289,13 @@ func TestSetupCodexReplacesStaleAiAttnNotify(t *testing.T) {
 	}
 
 	config := readTOMLConfig(t, configPath)
-	notify, _ := config["notify"].([]any)
-	hookPath := filepath.Join(home, ".local", "share", "ai-attn", "hooks", "codex.sh")
-	if len(notify) != 2 || notify[1] != hookPath {
-		t.Fatalf("expected stale ai-attn notify to be replaced with current path, got %v", notify)
+	if _, ok := config["notify"]; ok {
+		t.Fatalf("expected stale ai-attn notify to be removed, got %v", config["notify"])
 	}
+	assertCodexHooksInstalled(t, readSettings(t, filepath.Join(home, ".codex", "hooks.json")))
 }
 
-func TestSetupCodexRefusesForeignNotify(t *testing.T) {
+func TestSetupCodexPreservesForeignNotify(t *testing.T) {
 	home := withTempHome(t)
 	configPath := filepath.Join(home, ".codex", "config.toml")
 	os.MkdirAll(filepath.Dir(configPath), 0o755)
@@ -301,26 +303,18 @@ func TestSetupCodexRefusesForeignNotify(t *testing.T) {
 	os.WriteFile(configPath, []byte(original), 0o644)
 
 	rc, _, stderr := runCLI(t, "setup", "codex")
-	if rc == exitOK {
-		t.Fatalf("expected non-zero exit when refusing foreign notify, got %d", rc)
-	}
-	if !strings.Contains(stderr, "refusing to overwrite") {
-		t.Fatalf("expected refusal warning in stderr, got: %s", stderr)
-	}
-	if !strings.Contains(stderr, "--force") {
-		t.Fatalf("expected stderr to mention --force escape hatch, got: %s", stderr)
-	}
-	if !strings.Contains(stderr, "/usr/local/bin/my-own-hook.sh") {
-		t.Fatalf("expected stderr to surface the existing notify value, got: %s", stderr)
+	if rc != exitOK {
+		t.Fatalf("expected setup to preserve foreign notify, rc=%d stderr=%s", rc, stderr)
 	}
 
 	data, _ := os.ReadFile(configPath)
 	if string(data) != original {
-		t.Fatalf("expected config to be unchanged after refusal, got: %s", string(data))
+		t.Fatalf("expected config to be unchanged, got: %s", string(data))
 	}
+	assertCodexHooksInstalled(t, readSettings(t, filepath.Join(home, ".codex", "hooks.json")))
 }
 
-func TestSetupCodexRefusesAiAttnWrapper(t *testing.T) {
+func TestSetupCodexPreservesNotifyWrapper(t *testing.T) {
 	home := withTempHome(t)
 	configPath := filepath.Join(home, ".codex", "config.toml")
 	os.MkdirAll(filepath.Dir(configPath), 0o755)
@@ -329,16 +323,14 @@ func TestSetupCodexRefusesAiAttnWrapper(t *testing.T) {
 	os.WriteFile(configPath, []byte(original), 0o644)
 
 	rc, _, stderr := runCLI(t, "setup", "codex")
-	if rc == exitOK {
-		t.Fatalf("expected refusal for non-canonical wrapper under ai-attn/hooks/, got rc=%d", rc)
-	}
-	if !strings.Contains(stderr, "refusing to overwrite") {
-		t.Fatalf("expected refusal warning, got: %s", stderr)
+	if rc != exitOK {
+		t.Fatalf("expected setup to preserve wrapper notify, rc=%d stderr=%s", rc, stderr)
 	}
 	data, _ := os.ReadFile(configPath)
 	if string(data) != original {
 		t.Fatalf("expected config unchanged, got:\n%s", string(data))
 	}
+	assertCodexHooksInstalled(t, readSettings(t, filepath.Join(home, ".codex", "hooks.json")))
 }
 
 func TestSetupClaudePreservesNonCanonicalWrapper(t *testing.T) {
@@ -400,26 +392,26 @@ func TestSetupClaudePreservesNonCanonicalWrapper(t *testing.T) {
 	}
 }
 
-func TestSetupCodexForceOverwritesForeignNotify(t *testing.T) {
+func TestSetupCodexForceStillPreservesForeignNotify(t *testing.T) {
 	home := withTempHome(t)
 	configPath := filepath.Join(home, ".codex", "config.toml")
 	os.MkdirAll(filepath.Dir(configPath), 0o755)
-	os.WriteFile(configPath, []byte("notify = [\"bash\", \"/usr/local/bin/my-own-hook.sh\"]\n"), 0o644)
+	original := "notify = [\"bash\", \"/usr/local/bin/my-own-hook.sh\"]\n"
+	os.WriteFile(configPath, []byte(original), 0o644)
 
 	rc, _, _ := runCLI(t, "setup", "--force", "codex")
 	if rc != exitOK {
 		t.Fatalf("expected exit 0 with --force, got %d", rc)
 	}
 
-	config := readTOMLConfig(t, configPath)
-	notify, _ := config["notify"].([]any)
-	hookPath := filepath.Join(home, ".local", "share", "ai-attn", "hooks", "codex.sh")
-	if len(notify) != 2 || notify[1] != hookPath {
-		t.Fatalf("expected notify to be overwritten with --force, got %v", notify)
+	data, _ := os.ReadFile(configPath)
+	if string(data) != original {
+		t.Fatalf("expected foreign notify to be preserved, got %s", string(data))
 	}
+	assertCodexHooksInstalled(t, readSettings(t, filepath.Join(home, ".codex", "hooks.json")))
 }
 
-func TestSetupCodexRefusalDoesNotBlockOtherAgents(t *testing.T) {
+func TestSetupCodexForeignNotifyDoesNotBlockOtherAgents(t *testing.T) {
 	home := withTempHome(t)
 	codexPath := filepath.Join(home, ".codex", "config.toml")
 	os.MkdirAll(filepath.Dir(codexPath), 0o755)
@@ -427,11 +419,14 @@ func TestSetupCodexRefusalDoesNotBlockOtherAgents(t *testing.T) {
 	os.MkdirAll(filepath.Join(home, ".claude"), 0o755)
 
 	rc, stdout, _ := runCLI(t, "setup")
-	if rc == exitOK {
-		t.Fatalf("expected non-zero exit when one agent refuses, got %d", rc)
+	if rc != exitOK {
+		t.Fatalf("expected setup success, got %d", rc)
 	}
 	if !strings.Contains(stdout, "claude: installed") {
-		t.Fatalf("expected claude to still be set up despite codex refusal, stdout: %s", stdout)
+		t.Fatalf("expected claude to be set up, stdout: %s", stdout)
+	}
+	if !strings.Contains(stdout, "codex: installed") {
+		t.Fatalf("expected codex to be set up, stdout: %s", stdout)
 	}
 }
 
@@ -626,9 +621,9 @@ func TestSetupAutoDetectMultiple(t *testing.T) {
 	if _, err := os.Stat(settingsPath); err != nil {
 		t.Fatalf("expected claude settings to be written: %v", err)
 	}
-	codexPath := filepath.Join(home, ".codex", "config.toml")
+	codexPath := filepath.Join(home, ".codex", "hooks.json")
 	if _, err := os.Stat(codexPath); err != nil {
-		t.Fatalf("expected codex config to be written: %v", err)
+		t.Fatalf("expected codex hooks to be written: %v", err)
 	}
 }
 
@@ -687,9 +682,9 @@ func TestSetupDryRunCodex(t *testing.T) {
 	if !strings.Contains(stdout, "(dry-run)") {
 		t.Fatalf("expected dry-run in output, got: %s", stdout)
 	}
-	configPath := filepath.Join(home, ".codex", "config.toml")
-	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
-		t.Fatalf("expected config.toml to not exist in dry-run, err=%v", err)
+	hooksPath := filepath.Join(home, ".codex", "hooks.json")
+	if _, err := os.Stat(hooksPath); !os.IsNotExist(err) {
+		t.Fatalf("expected hooks.json to not exist in dry-run, err=%v", err)
 	}
 }
 

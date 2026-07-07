@@ -12,10 +12,9 @@ ai-attn setup claude       # wire a single agent
 ai-attn setup --dry-run    # preview without writing
 ```
 
-It is idempotent (existing ai-attn entries are removed and re-added fresh) and preserves non-ai-attn hooks, top-level settings, and other plugins. Two cases require explicit opt-in via `--force` (or manual wiring per the steps below):
+It is idempotent (existing ai-attn entries are removed and re-added fresh) and preserves non-ai-attn hooks, top-level settings, and other plugins. One case requires explicit opt-in via `--force` (or manual wiring per the steps below):
 
-- **Codex** supports only one global `notify` command, so setup refuses if `~/.codex/config.toml` already has a non-ai-attn `notify`.
-- **OpenCode** setup re-emits `opencode.jsonc` as plain JSON, so it refuses when the file contains `//` or `/* */` comments. The Codex and OpenCode manual steps below remain valid alternatives in these cases.
+- **OpenCode** setup re-emits `opencode.jsonc` as plain JSON, so it refuses when the file contains `//` or `/* */` comments. The manual steps below remain a valid alternative.
 
 After running setup, skip to [Post-Setup Verification](#post-setup-verification).
 
@@ -92,28 +91,100 @@ Wire ai-attn hooks into `~/.claude/settings.json` so that attention signals are 
 
 ## Codex
 
-Wire ai-attn into `~/.codex/config.toml` as the notification command.
+Wire ai-attn into `~/.codex/hooks.json` using Codex lifecycle hooks. Codex
+passes one JSON payload on stdin for each hook event.
 
 ### Steps
 
-1. Read `~/.codex/config.toml`. If the file does not exist, create it.
+1. Read `~/.codex/hooks.json`. If the file does not exist, start with:
 
-2. Set the `notify` key at the top level to the following value, using the absolute path (do not use `~` or `$HOME` — TOML does not expand them):
-
-   ```toml
-   notify = ["bash", "<HOME>/.local/share/ai-attn/hooks/codex.sh"]
+   ```json
+   { "hooks": {} }
    ```
 
-   Replace `<HOME>` with the actual value of the user's home directory. For example:
+2. Ensure the top-level `"hooks"` key exists as an object. Preserve all existing non-ai-attn hooks.
 
-   ```toml
-   # Linux
-   notify = ["bash", "/home/username/.local/share/ai-attn/hooks/codex.sh"]
-   # macOS
-   notify = ["bash", "/Users/username/.local/share/ai-attn/hooks/codex.sh"]
+3. For `UserPromptSubmit`, `PermissionRequest`, `PreToolUse`, `PostToolUse`, and `Stop`, append one matcher group with the ai-attn command. Use the absolute path to the installed hook script:
+
+   ```json
+   {
+     "hooks": {
+       "UserPromptSubmit": [
+         {
+           "matcher": "",
+           "hooks": [
+             {
+               "type": "command",
+               "command": "bash <HOME>/.local/share/ai-attn/hooks/codex.sh",
+               "timeout": 10,
+               "statusMessage": "Updating ai-attn"
+             }
+           ]
+         }
+       ],
+       "PermissionRequest": [
+         {
+           "matcher": "",
+           "hooks": [
+             {
+               "type": "command",
+               "command": "bash <HOME>/.local/share/ai-attn/hooks/codex.sh",
+               "timeout": 10,
+               "statusMessage": "Updating ai-attn"
+             }
+           ]
+         }
+       ],
+       "PreToolUse": [
+         {
+           "matcher": "",
+           "hooks": [
+             {
+               "type": "command",
+               "command": "bash <HOME>/.local/share/ai-attn/hooks/codex.sh",
+               "timeout": 10,
+               "statusMessage": "Updating ai-attn"
+             }
+           ]
+         }
+       ],
+       "PostToolUse": [
+         {
+           "matcher": "",
+           "hooks": [
+             {
+               "type": "command",
+               "command": "bash <HOME>/.local/share/ai-attn/hooks/codex.sh",
+               "timeout": 10,
+               "statusMessage": "Updating ai-attn"
+             }
+           ]
+         }
+       ],
+       "Stop": [
+         {
+           "matcher": "",
+           "hooks": [
+             {
+               "type": "command",
+               "command": "bash <HOME>/.local/share/ai-attn/hooks/codex.sh",
+               "timeout": 10,
+               "statusMessage": "Updating ai-attn"
+             }
+           ]
+         }
+       ]
+     }
+   }
    ```
 
-3. If a `notify` line already exists, replace it. Write the file back.
+4. Replace `<HOME>` with the actual home directory. For example:
+
+   ```json
+   "command": "bash /home/username/.local/share/ai-attn/hooks/codex.sh"
+   ```
+
+5. If `~/.codex/config.toml` contains the old ai-attn `notify` entry, remove it. Leave unrelated `notify` commands alone; they are not ai-attn hooks.
 
 ## OpenCode
 

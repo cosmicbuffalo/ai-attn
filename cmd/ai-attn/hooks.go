@@ -254,7 +254,7 @@ func matchOpencodeEvent(eventType string, raw map[string]any) (state, reason str
 // matchCodexEvent maps a Codex event string to an ai-attn state using substring matching.
 func matchCodexEvent(event string) (state string, ok bool) {
 	lower := strings.ToLower(event)
-	for _, pattern := range []string{"turn-start", "start-turn", "user_prompt", "user-prompt", "userpromptsubmit", "user_message", "user-message", "submit", "resume", "continue"} {
+	for _, pattern := range []string{"turn-start", "start-turn", "user_prompt", "user-prompt", "userpromptsubmit", "user_message", "user-message", "submit", "resume", "continue", "pretooluse", "posttooluse"} {
 		if strings.Contains(lower, pattern) {
 			return "working", true
 		}

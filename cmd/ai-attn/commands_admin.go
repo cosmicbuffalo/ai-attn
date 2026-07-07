@@ -204,7 +204,7 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	}
 	hooks := []hookCheck{
 		{"claude.sh", filepath.Join(homeDir(), ".claude", "settings.json"), "ai-attn/hooks/claude.sh"},
-		{"codex.sh", filepath.Join(homeDir(), ".codex", "config.toml"), "ai-attn/hooks/codex.sh"},
+		{"codex.sh", filepath.Join(homeDir(), ".codex", "hooks.json"), "ai-attn/hooks/codex.sh"},
 		{"opencode.sh", filepath.Join(homeDir(), ".config", "opencode", "opencode.jsonc"), "ai-attn/plugins/opencode"},
 	}
 	for _, check := range hooks {
@@ -217,6 +217,12 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 		}
 		configData, err := os.ReadFile(check.configFile)
 		if err != nil {
+			if agent == "codex" && legacyCodexNotifyConfigured(check.searchStr) {
+				fmt.Fprintf(stdout, "hook_%s=legacy_notify (legacy ai-attn notify is present in %s; run 'ai-attn setup codex' to install current Codex hooks)\n",
+					agent, filepath.Join(homeDir(), ".codex", "config.toml"))
+				allPassed = false
+				continue
+			}
 			fmt.Fprintf(stdout, "hook_%s=not_wired (script exists but not referenced in %s) — run 'ai-attn setup' to fix\n", agent, check.configFile)
 			allPassed = false
 			continue
@@ -227,6 +233,12 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 		}
 		if wrapper := findWrapperReferencingCanonical(configData, check.searchStr); wrapper != "" {
 			fmt.Fprintf(stdout, "hook_%s=installed (via wrapper at %s)\n", agent, wrapper)
+			continue
+		}
+		if agent == "codex" && legacyCodexNotifyConfigured(check.searchStr) {
+			fmt.Fprintf(stdout, "hook_%s=legacy_notify (legacy ai-attn notify is present in %s; run 'ai-attn setup codex' to install current Codex hooks)\n",
+				agent, filepath.Join(homeDir(), ".codex", "config.toml"))
+			allPassed = false
 			continue
 		}
 		fmt.Fprintf(stdout, "hook_%s=not_wired (script exists but not referenced in %s) — run 'ai-attn setup' to fix\n", agent, check.configFile)
@@ -245,10 +257,8 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 // reads each candidate script, and returns the first one whose contents reference the
 // canonical hook path (searchStr). Returns "" if no such wrapper is found.
 //
-// This lets doctor recognize setups like `notify = ["bash", "/path/to/codex-multi.sh"]`
-// where codex-multi.sh is a user-authored fan-out that ultimately invokes our canonical
-// codex.sh — strictly the canonical path isn't in the config, but the wiring still
-// reaches our hook.
+// This lets doctor recognize setups where a user-authored fan-out script is
+// configured as the hook command and ultimately invokes our canonical script.
 func findWrapperReferencingCanonical(configData []byte, searchStr string) string {
 	for _, candidate := range candidatePathsInConfig(configData) {
 		expanded := expandHome(candidate)
@@ -265,6 +275,14 @@ func findWrapperReferencingCanonical(configData []byte, searchStr string) string
 		}
 	}
 	return ""
+}
+
+func legacyCodexNotifyConfigured(searchStr string) bool {
+	data, err := os.ReadFile(filepath.Join(homeDir(), ".codex", "config.toml"))
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(data), searchStr)
 }
 
 // candidatePathsInConfig returns paths mentioned in the agent's config that
