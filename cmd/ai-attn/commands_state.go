@@ -94,10 +94,21 @@ func cmdStatus(args []string, stdout, stderr io.Writer) int {
 	}
 	cfg := loadConfig(stderr)
 	runGC(cfg)
+	identityKey := *key == ""
 	if *key == "" {
-		*key = sessionKey(identityFlags.Agent, identityFlags.SessionID, identityFlags.PaneID)
+		*key = sessionKey(identityFlags.Agent, identityFlags.SessionID, identityFlags.PaneID, identityFlags.Socket)
 	}
 	data, err := os.ReadFile(stateFile(*key))
+	if errors.Is(err, os.ErrNotExist) && identityKey && identityFlags.Socket != "" {
+		legacyKey := legacySessionKey(identityFlags.Agent, identityFlags.SessionID, identityFlags.PaneID)
+		if legacyKey != *key {
+			if legacyData, legacyErr := os.ReadFile(stateFile(legacyKey)); legacyErr == nil {
+				*key = legacyKey
+				data = legacyData
+				err = nil
+			}
+		}
+	}
 	if err != nil {
 		fmt.Fprintf(stdout, "state= key=%s reason=none age=na\n", *key)
 		return exitOK

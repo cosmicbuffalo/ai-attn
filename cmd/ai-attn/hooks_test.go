@@ -61,7 +61,7 @@ func TestHookWaitingReasonChangeRefreshesTimestamp(t *testing.T) {
 	if rc != exitOK {
 		t.Fatalf("hook rc=%d stderr=%s", rc, stderr.String())
 	}
-	key := sessionKey("claude", "r1", "")
+	key := sessionKey("claude", "r1", "", "")
 	path := stateFile(key)
 	record, err := readRecord(path)
 	if err != nil {
@@ -213,7 +213,7 @@ func TestHookCodexUnknownEventIsNoop(t *testing.T) {
 		t.Fatalf("hook rc=%d", rc)
 	}
 
-	key := sessionKey("codex", "cx-2", "")
+	key := sessionKey("codex", "cx-2", "", "")
 	if _, err := os.Stat(stateFile(key)); !os.IsNotExist(err) {
 		t.Fatalf("expected no state file for unknown event, err=%v", err)
 	}
@@ -377,7 +377,7 @@ func TestHookOpencodeUnknownEventIsNoop(t *testing.T) {
 	if rc != exitOK {
 		t.Fatalf("hook rc=%d stderr=%s", rc, stderr.String())
 	}
-	key := sessionKey("opencode", "oc-6", "")
+	key := sessionKey("opencode", "oc-6", "", "")
 	if _, err := os.Stat(stateFile(key)); !os.IsNotExist(err) {
 		t.Fatalf("expected no state file for unknown event, err=%v", err)
 	}
@@ -514,7 +514,7 @@ func TestHookClaudeSessionEndRemovesState(t *testing.T) {
 	if rc != exitOK {
 		t.Fatalf("hook set rc=%d stderr=%s", rc, stderr.String())
 	}
-	key := sessionKey("claude", "se-1", "")
+	key := sessionKey("claude", "se-1", "", "")
 	if _, err := os.Stat(stateFile(key)); err != nil {
 		t.Fatalf("expected state file to exist after PermissionRequest: %v", err)
 	}
@@ -554,7 +554,7 @@ func TestHookClaudeCWDFallbackToWorkspaceRoots(t *testing.T) {
 	if rc != exitOK {
 		t.Fatalf("hook rc=%d stderr=%s", rc, stderr.String())
 	}
-	key := sessionKey("claude", "wr-1", "")
+	key := sessionKey("claude", "wr-1", "", "")
 	record, err := readRecord(stateFile(key))
 	if err != nil {
 		t.Fatalf("failed to read state record: %v", err)
@@ -573,7 +573,7 @@ func TestHookClaudeFallsBackToConversationID(t *testing.T) {
 	if rc != exitOK {
 		t.Fatalf("hook rc=%d stderr=%s", rc, stderr.String())
 	}
-	key := sessionKey("claude", "conv-1", "")
+	key := sessionKey("claude", "conv-1", "", "")
 	record, err := readRecord(stateFile(key))
 	if err != nil {
 		t.Fatalf("failed to read state record: %v", err)
@@ -610,7 +610,7 @@ func TestHookClaudeUnknownEventIsNoop(t *testing.T) {
 	if rc != exitOK {
 		t.Fatalf("expected rc=0 for unknown event, got %d", rc)
 	}
-	key := sessionKey("claude", "unk-1", "")
+	key := sessionKey("claude", "unk-1", "", "")
 	if _, err := os.Stat(stateFile(key)); !os.IsNotExist(err) {
 		t.Fatalf("expected no state file for unknown event, err=%v", err)
 	}
@@ -625,7 +625,7 @@ func TestHookClaudeNotificationUnknownTypeIsNoop(t *testing.T) {
 	if rc != exitOK {
 		t.Fatalf("expected rc=0, got %d", rc)
 	}
-	key := sessionKey("claude", "ni-1", "")
+	key := sessionKey("claude", "ni-1", "", "")
 	if _, err := os.Stat(stateFile(key)); !os.IsNotExist(err) {
 		t.Fatalf("expected no state file for info notification, err=%v", err)
 	}

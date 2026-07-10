@@ -44,7 +44,7 @@ func TestClearStateTransitionsToNotWaiting(t *testing.T) {
 func TestStatusShowsWaitingRegardlessOfAge(t *testing.T) {
 	withTempHome(t)
 	_, _, _ = runCLI(t, "set-state", "--agent", "codex", "--cwd", "/tmp", "--session-id", "s-1", "--state", "waiting", "--reason", "permission_prompt")
-	key := sessionKey("codex", "s-1", "")
+	key := sessionKey("codex", "s-1", "", "")
 	path := stateFile(key)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -78,7 +78,7 @@ func TestGCRemovesStaleState(t *testing.T) {
 	if err := ensureStateDir(); err != nil {
 		t.Fatal(err)
 	}
-	key := sessionKey("codex", "sid", "")
+	key := sessionKey("codex", "sid", "", "")
 	record := Record{
 		Agent:      "codex",
 		SessionKey: key,
@@ -113,7 +113,7 @@ func TestListRunsGCWhenEnabled(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	key := sessionKey("codex", "sid", "")
+	key := sessionKey("codex", "sid", "", "")
 	record := Record{
 		Agent:      "codex",
 		SessionKey: key,
@@ -161,7 +161,7 @@ func TestSetStateNoopWhenDisabled(t *testing.T) {
 	if rc != exitOK {
 		t.Fatalf("set-state rc=%d", rc)
 	}
-	if _, err := os.Stat(stateFile(sessionKey("codex", "abc", ""))); !os.IsNotExist(err) {
+	if _, err := os.Stat(stateFile(sessionKey("codex", "abc", "", ""))); !os.IsNotExist(err) {
 		t.Fatalf("expected no state file, err=%v", err)
 	}
 }
@@ -172,7 +172,7 @@ func TestListJSONNormalizesWaitingState(t *testing.T) {
 	_, _, _ = runCLI(t, "set-state", "--agent", "codex", "--cwd", "/tmp/project-a", "--session-id", "abc", "--pane-id", "%1", "--state", "waiting", "--reason", "permission_prompt")
 	_, _, _ = runCLI(t, "clear-state", "--agent", "claude", "--cwd", "/tmp/project-b", "--session-id", "def", "--pane-id", "%2", "--reason", "Stop")
 
-	key := sessionKey("codex", "abc", "%1")
+	key := sessionKey("codex", "abc", "%1", "")
 	path := stateFile(key)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -248,7 +248,7 @@ func TestGCRemovesNonWaitingRecordsAfterTTL(t *testing.T) {
 	if err := ensureStateDir(); err != nil {
 		t.Fatal(err)
 	}
-	key := sessionKey("claude", "gc-work", "")
+	key := sessionKey("claude", "gc-work", "", "")
 	record := Record{
 		Agent:      "claude",
 		SessionKey: key,
@@ -320,7 +320,7 @@ func TestStatusScopesBySocket(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	key := sessionKey("codex", "shared-session", "%15")
+	key := legacySessionKey("codex", "shared-session", "%15")
 	record := Record{
 		Agent:      "codex",
 		SessionKey: key,
@@ -361,7 +361,7 @@ func TestStatusMatchesLegacyEmptySocket(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	key := sessionKey("codex", "legacy-session", "%15")
+	key := legacySessionKey("codex", "legacy-session", "%15")
 	record := Record{
 		Agent:      "codex",
 		SessionKey: key,
@@ -398,7 +398,7 @@ func TestClearSkipsWorkingState(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Create a "working" record
-	workingKey := sessionKey("claude", "work-1", "")
+	workingKey := sessionKey("claude", "work-1", "", "")
 	workingRecord := Record{
 		Agent:      "claude",
 		SessionKey: workingKey,
@@ -412,7 +412,7 @@ func TestClearSkipsWorkingState(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Create a "waiting" record
-	waitingKey := sessionKey("claude", "wait-1", "")
+	waitingKey := sessionKey("claude", "wait-1", "", "")
 	waitingRecord := Record{
 		Agent:      "claude",
 		SessionKey: waitingKey,
@@ -449,7 +449,7 @@ func TestClearPaneScopesBySocket(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ownKey := sessionKey("claude", "own-socket", "")
+	ownKey := sessionKey("claude", "own-socket", "", "/tmp/tmux-1000/outer")
 	ownRecord := Record{
 		Agent:      "claude",
 		SessionKey: ownKey,
@@ -465,7 +465,7 @@ func TestClearPaneScopesBySocket(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	legacyKey := sessionKey("claude", "legacy-socket", "")
+	legacyKey := legacySessionKey("claude", "legacy-socket", "")
 	legacyRecord := Record{
 		Agent:      "claude",
 		SessionKey: legacyKey,
@@ -480,7 +480,7 @@ func TestClearPaneScopesBySocket(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	foreignKey := sessionKey("claude", "foreign-socket", "")
+	foreignKey := sessionKey("claude", "foreign-socket", "", "/tmp/tmux-1000/inner")
 	foreignRecord := Record{
 		Agent:      "claude",
 		SessionKey: foreignKey,
@@ -511,5 +511,109 @@ func TestClearPaneScopesBySocket(t *testing.T) {
 	}
 	if _, err := os.Stat(stateFile(foreignKey)); err != nil {
 		t.Fatalf("expected foreign-socket record to survive, err=%v", err)
+	}
+}
+
+func TestSocketScopedSessionWritesCoexist(t *testing.T) {
+	withTempHome(t)
+	if err := ensureStateDir(); err != nil {
+		t.Fatal(err)
+	}
+
+	outer, err := writeStateRecord(sessionIdentity{
+		Agent:     "codex",
+		SessionID: "shared-session",
+		PaneID:    "%15",
+		Socket:    "/tmp/tmux/outer",
+	}, "waiting", "permission_request")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inner, err := writeStateRecord(sessionIdentity{
+		Agent:     "codex",
+		SessionID: "shared-session",
+		PaneID:    "%15",
+		Socket:    "/tmp/tmux/inner",
+	}, "working", "PreToolUse")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if outer.SessionKey == inner.SessionKey {
+		t.Fatal("different tmux servers overwrote the same session key")
+	}
+	if _, err := os.Stat(stateFile(outer.SessionKey)); err != nil {
+		t.Fatalf("outer record missing: %v", err)
+	}
+	if _, err := os.Stat(stateFile(inner.SessionKey)); err != nil {
+		t.Fatalf("inner record missing: %v", err)
+	}
+}
+
+func TestSocketScopedWriteRemovesCompatibleLegacyRecord(t *testing.T) {
+	withTempHome(t)
+	if err := ensureStateDir(); err != nil {
+		t.Fatal(err)
+	}
+
+	legacyKey := legacySessionKey("claude", "migrating-session", "%7")
+	legacy := Record{
+		Agent:      "claude",
+		SessionKey: legacyKey,
+		State:      "waiting",
+		SessionID:  "migrating-session",
+		PaneID:     "%7",
+		Socket:     "/tmp/tmux/outer",
+	}
+	if err := writeJSON(stateFile(legacyKey), legacy); err != nil {
+		t.Fatal(err)
+	}
+
+	record, err := writeStateRecord(sessionIdentity{
+		Agent:     "claude",
+		SessionID: "migrating-session",
+		PaneID:    "%7",
+		Socket:    "/tmp/tmux/outer",
+	}, "", "UserPromptSubmit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stateFile(legacyKey)); !os.IsNotExist(err) {
+		t.Fatalf("compatible legacy record was not removed: %v", err)
+	}
+	if record.SessionKey == legacyKey {
+		t.Fatal("socket-scoped record reused the legacy key")
+	}
+}
+
+func TestSocketScopedWritePreservesForeignLegacyRecord(t *testing.T) {
+	withTempHome(t)
+	if err := ensureStateDir(); err != nil {
+		t.Fatal(err)
+	}
+
+	legacyKey := legacySessionKey("claude", "shared-session", "%7")
+	legacy := Record{
+		Agent:      "claude",
+		SessionKey: legacyKey,
+		State:      "waiting",
+		SessionID:  "shared-session",
+		PaneID:     "%7",
+		Socket:     "/tmp/tmux/inner",
+	}
+	if err := writeJSON(stateFile(legacyKey), legacy); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := writeStateRecord(sessionIdentity{
+		Agent:     "claude",
+		SessionID: "shared-session",
+		PaneID:    "%7",
+		Socket:    "/tmp/tmux/outer",
+	}, "working", "PreToolUse"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stateFile(legacyKey)); err != nil {
+		t.Fatalf("foreign legacy record should be preserved: %v", err)
 	}
 }

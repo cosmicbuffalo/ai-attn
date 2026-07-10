@@ -20,6 +20,7 @@ func withTempHome(t *testing.T) string {
 	t.Setenv("HOME", home)
 	t.Setenv("PATH", os.Getenv("PATH"))
 	t.Setenv("TMUX_PANE", "")
+	t.Setenv("TMUX", "")
 	t.Setenv("AI_ATTN_CONFIG", "")
 	t.Setenv("AI_ATTN_STATE_DIR", "")
 	if modCache != "" {

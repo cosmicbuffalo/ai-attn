@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.2] - 2026-07-10
+
+### Fixed
+
+- Include the owning tmux socket in automatic session keys so the same agent session running on two tmux servers cannot overwrite one shared state file.
+- Migrate compatible pre-v0.3.2 state on the next write and retain status fallback for legacy keys during upgrade.
+- Fetch hook and support files from the installed binary's immutable release tag instead of mutable `main` during latest-release installs.
+
+### Security
+
+- Download and verify the release `checksums.txt` before installing a pre-built binary.
+
 ## [0.3.1] - 2026-07-07
 
 ### Changed
@@ -77,6 +89,7 @@ Initial public release.
 - CI pipeline with formatting, linting, and test checks
 - Automated multi-platform release builds via GitHub Actions
 
+[0.3.2]: https://github.com/cosmicbuffalo/ai-attn/releases/tag/v0.3.2
 [0.3.1]: https://github.com/cosmicbuffalo/ai-attn/releases/tag/v0.3.1
 [0.3.0]: https://github.com/cosmicbuffalo/ai-attn/releases/tag/v0.3.0
 [0.2.1]: https://github.com/cosmicbuffalo/ai-attn/releases/tag/v0.2.1

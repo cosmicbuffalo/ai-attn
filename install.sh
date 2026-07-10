@@ -73,29 +73,69 @@ detect_platform() {
 
 download_binary() {
   local platform="$1"
-  local url tmp_bin
+  local base_url url checksums_url tmp_bin tmp_checksums release_tag
 
-  if [ "$VERSION" = "latest" ]; then
-    url="https://github.com/${REPO}/releases/latest/download/ai-attn-${platform}"
+  if [ -n "${AI_ATTN_RELEASE_BASE_URL:-}" ]; then
+    base_url="${AI_ATTN_RELEASE_BASE_URL%/}"
+  elif [ "$VERSION" = "latest" ]; then
+    base_url="https://github.com/${REPO}/releases/latest/download"
   else
-    url="https://github.com/${REPO}/releases/download/${VERSION}/ai-attn-${platform}"
+    case "$VERSION" in
+      v*) release_tag="$VERSION" ;;
+      *) release_tag="v${VERSION}" ;;
+    esac
+    base_url="https://github.com/${REPO}/releases/download/${release_tag}"
   fi
+  url="${base_url}/ai-attn-${platform}"
+  checksums_url="${base_url}/checksums.txt"
 
   tmp_bin="$(mktemp "${INSTALL_DIR}/bin/ai-attn.dl.XXXXXX")"
-  trap 'rm -f "$tmp_bin"' RETURN
+  tmp_checksums="$(mktemp "${INSTALL_DIR}/bin/checksums.dl.XXXXXX")"
+  trap 'rm -f "$tmp_bin" "$tmp_checksums"' RETURN
 
   echo "Downloading ai-attn for ${platform}..."
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL -o "$tmp_bin" "$url"
+    if ! curl -fsSL -o "$tmp_bin" "$url" || ! curl -fsSL -o "$tmp_checksums" "$checksums_url"; then
+      return 1
+    fi
   elif command -v wget >/dev/null 2>&1; then
-    wget -qO "$tmp_bin" "$url"
+    if ! wget -qO "$tmp_bin" "$url" || ! wget -qO "$tmp_checksums" "$checksums_url"; then
+      return 1
+    fi
   else
     echo "Neither curl nor wget found." >&2
     return 1
   fi
-  chmod +x "$tmp_bin"
-  mv "$tmp_bin" "$TARGET_BIN"
+  if ! verify_download_checksum "$tmp_bin" "$tmp_checksums" "ai-attn-${platform}"; then
+    return 1
+  fi
+  chmod +x "$tmp_bin" || return 1
+  mv "$tmp_bin" "$TARGET_BIN" || return 1
   trap - RETURN
+  rm -f "$tmp_checksums"
+}
+
+verify_download_checksum() {
+  local file="$1" checksums_file="$2" asset="$3"
+  local expected actual
+
+  expected="$(awk -v name="$asset" '$2 == name || $2 == "*" name {print $1; exit}' "$checksums_file")"
+  if [ -z "$expected" ]; then
+    echo "Checksum entry not found for ${asset}." >&2
+    return 1
+  fi
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual="$(sha256sum "$file" | awk '{print $1}')"
+  elif command -v shasum >/dev/null 2>&1; then
+    actual="$(shasum -a 256 "$file" | awk '{print $1}')"
+  else
+    echo "Neither sha256sum nor shasum found." >&2
+    return 1
+  fi
+  if [ "$actual" != "$expected" ]; then
+    echo "Checksum mismatch for ${asset}." >&2
+    return 1
+  fi
 }
 
 source_build_version() {
@@ -195,13 +235,31 @@ if ! verify_installed_binary; then
 fi
 installed_version="$(read_ai_attn_version "$TARGET_BIN")"
 
+# Keep downloaded hooks and support files on the same immutable release as the
+# installed binary. Using mutable main here can pair an older latest-release
+# binary with newer, incompatible hook payloads between releases.
+if [ "$VERSION" = "latest" ]; then
+  version_pattern='^v?([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?)$'
+  if [[ "$installed_version" =~ $version_pattern ]]; then
+    SOURCE_REF="v${BASH_REMATCH[1]}"
+  else
+    echo "Cannot determine the installed release tag from: $installed_version" >&2
+    exit 1
+  fi
+else
+  case "$VERSION" in
+    v*) SOURCE_REF="$VERSION" ;;
+    *) SOURCE_REF="v${VERSION}" ;;
+  esac
+fi
+
 # Download a file from the repo (used when not running from a clone)
 download_file() {
   local dest="$1" path="$2" base_url
-  if [ "$VERSION" = "latest" ]; then
-    base_url="https://raw.githubusercontent.com/${REPO}/main"
+  if [ -n "${AI_ATTN_SOURCE_BASE_URL:-}" ]; then
+    base_url="${AI_ATTN_SOURCE_BASE_URL%/}"
   else
-    base_url="https://raw.githubusercontent.com/${REPO}/${VERSION}"
+    base_url="https://raw.githubusercontent.com/${REPO}/${SOURCE_REF}"
   fi
   if command -v curl >/dev/null 2>&1; then
     curl -fsSL -o "$dest" "$base_url/$path"

@@ -21,9 +21,12 @@ go vet ./...
 step "go test"
 go test ./...
 
+step "installer tests"
+bash scripts/test-install.sh
+
 step "shellcheck"
 if command -v shellcheck >/dev/null 2>&1; then
-    shellcheck --source-path=hooks install.sh uninstall.sh hooks/*.sh
+    shellcheck --source-path=hooks install.sh uninstall.sh hooks/*.sh scripts/*.sh
 else
     echo "shellcheck not found locally — skipping (CI will still run it)." >&2
 fi
