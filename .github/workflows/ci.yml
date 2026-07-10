@@ -30,11 +30,14 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Test installer
+        run: bash scripts/test-install.sh
+
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
 
       - name: Lint shell scripts
-        run: shellcheck --source-path=hooks install.sh uninstall.sh hooks/*.sh
+        run: shellcheck --source-path=hooks install.sh uninstall.sh hooks/*.sh scripts/*.sh
 
   build-release:
     if: needs.prepare-release.outputs.should_release == 'true'

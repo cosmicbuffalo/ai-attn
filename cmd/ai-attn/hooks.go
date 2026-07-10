@@ -105,9 +105,18 @@ func hookClaude(hookPayload string, stderr io.Writer) int {
 		reason = event
 	case "SessionEnd":
 		paneID := os.Getenv("TMUX_PANE")
-		key := sessionKey("claude", sessionID, paneID)
+		identity := sessionIdentity{
+			Agent:     "claude",
+			SessionID: sessionID,
+			PaneID:    paneID,
+			Socket:    tmuxSocket(),
+		}
+		key := sessionKey(identity.Agent, identity.SessionID, identity.PaneID, identity.Socket)
 		if err := os.Remove(stateFile(key)); err != nil && !os.IsNotExist(err) {
 			fmt.Fprintf(stderr, "ai-attn: warning: failed to remove state file: %v\n", err)
+		}
+		if err := removeCompatibleLegacyRecord(identity, key); err != nil {
+			fmt.Fprintf(stderr, "ai-attn: warning: failed to remove legacy state file: %v\n", err)
 		}
 		return exitOK
 	default:

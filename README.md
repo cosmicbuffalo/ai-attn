@@ -31,7 +31,7 @@ When an AI agent needs your attention (permission prompt, elicitation dialog, tu
 ## Install
 
 ```bash
-# One-line install (downloads pre-built binary, no Go required):
+# One-line install (downloads and verifies a pre-built binary, no Go required):
 curl -fsSL https://raw.githubusercontent.com/cosmicbuffalo/ai-attn/main/install.sh | bash
 
 # Or build from source, requires Go 1.22+:
@@ -111,7 +111,7 @@ Each `set-state` call refreshes `updated_at`, so `age_seconds` reflects how long
 | `state` | Current state: `waiting`, `working`, `done`, `stopped`, or empty when cleared. **This is the field consumers should key on.** |
 | `reason` | Agent-specific reason for the state change (e.g., `permission_prompt`, `agent-turn-complete`). |
 | `age_seconds` | Seconds since `updated_at`. |
-| `pane_id` | Auto-populated from `$TMUX_PANE` when the hook runs inside tmux. For relay records from a nested tmux session, this is the outer pane where attention should be displayed. |
+| `pane_id` | Auto-populated from `$TMUX_PANE` when the hook runs inside tmux. For relay records (e.g., from [pmux](https://github.com/cosmicbuffalo/pmux)), this is the outer pane where attention should be displayed. |
 | `socket` | Tmux server socket that owns `pane_id`. Hooks populate it from the first field of `$TMUX`; relay producers can pass it with `--socket`. Empty or missing means the producer was older or outside tmux, and consumers should treat it as matching any server. |
 
 #### Example: tmux status bar indicator
@@ -253,7 +253,7 @@ ttl_seconds = 259200
 - **macOS and Linux** are supported with pre-built binaries (amd64 and arm64).
 - **Windows/WSL:** Not tested. Building from source with Go should work under WSL, but hooks assume a bash environment.
 - **`~/.local/bin` in PATH:** Some distributions don't include this by default. The install script will warn if it's missing from your PATH.
-- **Binary integrity:** Downloads are fetched over HTTPS from GitHub Releases. The install script does not currently verify checksums. If this concerns you, download the binary manually from the [releases page](https://github.com/cosmicbuffalo/ai-attn/releases) and verify it yourself.
+- **Binary integrity:** The installer fetches the release's `checksums.txt` over HTTPS and verifies the selected binary with SHA-256 before installing it.
 
 ### Uninstall
 

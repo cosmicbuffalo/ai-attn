@@ -28,7 +28,7 @@ Before wiring hooks, ensure ai-attn is installed. Run `ai-attn doctor` to check.
 make install
 ```
 
-**Or without cloning (downloads pre-built binary, no Go required):**
+**Or without cloning (downloads and verifies a pre-built binary, no Go required):**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/cosmicbuffalo/ai-attn/main/install.sh | bash

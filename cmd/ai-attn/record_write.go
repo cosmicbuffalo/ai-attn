@@ -10,10 +10,13 @@ import (
 	"time"
 )
 
-// sessionKey derives a deterministic, truncated SHA-256 key from agent and session identity.
-func sessionKey(agent, sessionID, paneID string) string {
+// sessionKey derives a deterministic, truncated SHA-256 key from agent,
+// session identity, and the tmux server that owns the pane. Empty socket keeps
+// the pre-v0.3.2 key format for records created outside tmux and migrations.
+func sessionKey(agent, sessionID, paneID, socket string) string {
 	agent = strings.TrimSpace(agent)
 	sessionID = strings.TrimSpace(sessionID)
+	socket = strings.TrimSpace(socket)
 
 	// All supported agents provide or synthesise a session ID, so the
 	// fallback path (no session ID) is essentially dead code — but we
@@ -24,8 +27,15 @@ func sessionKey(agent, sessionID, paneID string) string {
 	} else {
 		hashInput = agent + "|" + strings.TrimSpace(paneID)
 	}
+	if socket != "" {
+		hashInput += "|" + socket
+	}
 	sum := sha256.Sum256([]byte(hashInput))
 	return hex.EncodeToString(sum[:])[:20]
+}
+
+func legacySessionKey(agent, sessionID, paneID string) string {
+	return sessionKey(agent, sessionID, paneID, "")
 }
 
 // stateFile returns the absolute path to the JSON state file for the given session key.
@@ -78,7 +88,7 @@ func readRecord(path string) (Record, error) {
 // (tmux-ai-attn) polls state periodically and only cares about the most
 // recent value, so momentary flickers from concurrent writes are harmless.
 func writeStateRecord(identity sessionIdentity, state, reason string) (Record, error) {
-	key := sessionKey(identity.Agent, identity.SessionID, identity.PaneID)
+	key := sessionKey(identity.Agent, identity.SessionID, identity.PaneID, identity.Socket)
 
 	record := Record{
 		Agent:      identity.Agent,
@@ -94,5 +104,31 @@ func writeStateRecord(identity sessionIdentity, state, reason string) (Record, e
 	if err := writeJSON(stateFile(key), record); err != nil {
 		return Record{}, err
 	}
+	if err := removeCompatibleLegacyRecord(identity, key); err != nil {
+		return Record{}, err
+	}
 	return record, nil
+}
+
+func removeCompatibleLegacyRecord(identity sessionIdentity, currentKey string) error {
+	legacyKey := legacySessionKey(identity.Agent, identity.SessionID, identity.PaneID)
+	if legacyKey == currentKey {
+		return nil
+	}
+	path := stateFile(legacyKey)
+	legacy, err := readRecord(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return os.Remove(path)
+	}
+	if legacy.Agent != strings.TrimSpace(identity.Agent) ||
+		legacy.SessionID != strings.TrimSpace(identity.SessionID) {
+		return nil
+	}
+	if legacy.Socket != "" && legacy.Socket != strings.TrimSpace(identity.Socket) {
+		return nil
+	}
+	return os.Remove(path)
 }

@@ -69,6 +69,7 @@ func cmdLogs(args []string, stdout, stderr io.Writer) int {
 // cmdTest implements the test subcommand, firing a temporary waiting signal then clearing it after a delay.
 func cmdTest(stdout, stderr io.Writer) int {
 	paneID := os.Getenv("TMUX_PANE")
+	socket := tmuxSocket()
 	cwd, _ := os.Getwd()
 	sessionID := "ai-attn-test"
 	agent := "test"
@@ -83,7 +84,7 @@ func cmdTest(stdout, stderr io.Writer) int {
 		return exitError
 	}
 
-	key := sessionKey(agent, sessionID, paneID)
+	key := sessionKey(agent, sessionID, paneID, socket)
 
 	// Handle interrupt so we clean up the test state file on Ctrl-C.
 	sigCh := make(chan os.Signal, 1)
@@ -113,7 +114,7 @@ func cmdTest(stdout, stderr io.Writer) int {
 		CWD:        cwd,
 		SessionID:  sessionID,
 		PaneID:     paneID,
-		Socket:     tmuxSocket(),
+		Socket:     socket,
 	}
 	if err := writeJSON(stateFile(key), record); err != nil {
 		fmt.Fprintln(stderr, err)

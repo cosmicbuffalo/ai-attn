@@ -7,8 +7,8 @@ import (
 
 // TestSessionKeyStableAcrossPaneChanges verifies that the session key ignores pane ID when a session ID is present.
 func TestSessionKeyStableAcrossPaneChanges(t *testing.T) {
-	key1 := sessionKey("claude", "session-uuid-123", "%1")
-	key2 := sessionKey("claude", "session-uuid-123", "%99")
+	key1 := sessionKey("claude", "session-uuid-123", "%1", "/tmp/tmux/outer")
+	key2 := sessionKey("claude", "session-uuid-123", "%99", "/tmp/tmux/outer")
 	if key1 != key2 {
 		t.Fatalf("session key with session ID should ignore pane: %s vs %s", key1, key2)
 	}
@@ -16,8 +16,8 @@ func TestSessionKeyStableAcrossPaneChanges(t *testing.T) {
 
 // TestSessionKeySameWithoutSessionID verifies that keys are stable when derived from pane ID alone.
 func TestSessionKeySameWithoutSessionID(t *testing.T) {
-	key1 := sessionKey("codex", "", "%1")
-	key2 := sessionKey("codex", "", "%1")
+	key1 := sessionKey("codex", "", "%1", "")
+	key2 := sessionKey("codex", "", "%1", "")
 	if key1 != key2 {
 		t.Fatalf("keys without session_id should match on pane: %s vs %s", key1, key2)
 	}
@@ -25,10 +25,26 @@ func TestSessionKeySameWithoutSessionID(t *testing.T) {
 
 // TestSessionKeyDiffersBetweenAgents verifies that different agents with the same session ID produce different keys.
 func TestSessionKeyDiffersBetweenAgents(t *testing.T) {
-	key1 := sessionKey("claude", "same-session", "")
-	key2 := sessionKey("codex", "same-session", "")
+	key1 := sessionKey("claude", "same-session", "", "")
+	key2 := sessionKey("codex", "same-session", "", "")
 	if key1 == key2 {
 		t.Fatal("keys for different agents with same session_id should differ")
+	}
+}
+
+func TestSessionKeyDiffersBetweenTmuxServers(t *testing.T) {
+	outer := sessionKey("claude", "same-session", "%15", "/tmp/tmux/outer")
+	inner := sessionKey("claude", "same-session", "%15", "/tmp/tmux/inner")
+	if outer == inner {
+		t.Fatal("keys for the same session on different tmux servers must differ")
+	}
+}
+
+func TestEmptySocketPreservesLegacySessionKey(t *testing.T) {
+	got := sessionKey("claude", "same-session", "%15", "")
+	want := legacySessionKey("claude", "same-session", "%15")
+	if got != want {
+		t.Fatalf("empty-socket key %s differs from legacy key %s", got, want)
 	}
 }
 
@@ -44,6 +60,7 @@ func TestTmuxSocketParsing(t *testing.T) {
 		{"standard", "/tmp/tmux-1000/default,12345,0", "/tmp/tmux-1000/default"},
 		{"named socket", "/home/nick/.tmux-sockets/homelab,999,2", "/home/nick/.tmux-sockets/homelab"},
 		{"inner tmux", "/tmp/tmux-1000/inner,4845,1780271390-jwu66opc", "/tmp/tmux-1000/inner"},
+		{"pmux backend", "/tmp/tmux-1000/pmux,4845,1780271390-jwu66opc", "/tmp/tmux-1000/pmux"},
 		{"no commas", "/tmp/tmux-1000/odd", "/tmp/tmux-1000/odd"},
 	}
 	for _, tc := range cases {
