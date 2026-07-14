@@ -2,11 +2,13 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestClaudeHookSetsAndClearsWaiting verifies that the Claude shell hook sets and clears the waiting state end-to-end.
@@ -288,6 +290,60 @@ func TestCodexHookSetAndCompleteToDone(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "state=done") {
 		t.Fatalf("unexpected status after completion: %s", string(out))
+	}
+}
+
+// TestCodexHookDoesNotWaitForStdinEOF verifies that a caller holding the input
+// pipe open cannot block the hook until the caller's own deadline.
+func TestCodexHookDoesNotWaitForStdinEOF(t *testing.T) {
+	home := withTempHome(t)
+	bin := buildBinary(t)
+	hook := filepath.Join(repoRoot(t), "hooks", "codex.sh")
+	payload := `{"hook_event_name":"UserPromptSubmit","session_id":"codex-open-stdin","cwd":"/tmp/codex"}`
+
+	cmd := exec.Command("bash", hook)
+	cmd.Env = append(os.Environ(),
+		"HOME="+home,
+		"AI_ATTN_BIN="+bin,
+		"AI_ATTN_CODEX_STDIN_TIMEOUT_SECONDS=0.1",
+	)
+	cmd.Dir = repoRoot(t)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stdin.Close()
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(stdin, payload); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("hook failed: %v\n%s", err, output.String())
+		}
+	case <-time.After(2 * time.Second):
+		_ = cmd.Process.Kill()
+		<-done
+		t.Fatal("hook waited for stdin EOF")
+	}
+
+	cmd = exec.Command(bin, "status", "--agent", "codex", "--session-id", "codex-open-stdin", "--cwd", "/tmp/codex")
+	cmd.Env = append(os.Environ(), "HOME="+home)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected working status after hook: %v\n%s", err, string(out))
+	}
+	if !strings.Contains(string(out), "state=working") {
+		t.Fatalf("unexpected status after hook: %s", string(out))
 	}
 }
 

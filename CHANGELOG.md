@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- Bound Codex hook stdin reads so a caller that leaves the input pipe open cannot block the hook until its deadline.
+
 ## [0.3.2] - 2026-07-10
 
 ### Fixed
