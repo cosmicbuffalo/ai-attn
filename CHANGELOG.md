@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- `ai-attn doctor` now reports agents without a config directory as `not_installed` without failing diagnostics. Installed agents that are not wired still fail with a setup hint.
+
 ## [0.3.2] - 2026-07-10
 
 ### Fixed
