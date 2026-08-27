@@ -29,8 +29,8 @@ func TestInitConfigCreatesFile(t *testing.T) {
 	if !parsed.Enabled {
 		t.Fatalf("expected enabled=true, got %+v", parsed)
 	}
-	if parsed.TTLSeconds != 72*3600 {
-		t.Fatalf("expected ttl_seconds=259200, got %+v", parsed)
+	if parsed.TTLSeconds != 90*24*3600 {
+		t.Fatalf("expected ttl_seconds=7776000, got %+v", parsed)
 	}
 }
 
@@ -75,7 +75,7 @@ func TestDoctorReportsHealth(t *testing.T) {
 	if !strings.Contains(stdout, "ai-attn") {
 		t.Fatalf("expected version in output: %s", stdout)
 	}
-	for _, field := range []string{"config_status=", "state_dir_status=ok", "enabled=true", "ttl_seconds=259200", "All checks passed."} {
+	for _, field := range []string{"config_status=", "state_dir_status=ok", "enabled=true", "ttl_seconds=7776000", "All checks passed."} {
 		if !strings.Contains(stdout, field) {
 			t.Fatalf("expected %q in doctor output: %s", field, stdout)
 		}

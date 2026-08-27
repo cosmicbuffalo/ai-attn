@@ -367,5 +367,5 @@ const defaultConfigTOML = `# ai-attn configuration. All keys are optional — de
 enabled = true
 
 # How long a record stays valid before it is treated as expired and garbage-collected.
-ttl_seconds = 259200
+ttl_seconds = 7776000
 `
