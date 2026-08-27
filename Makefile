@@ -2,11 +2,12 @@
 
 BIN := ai-attn
 CMD := ./cmd/ai-attn
+VERSION := $(shell tr -d '[:space:]' < VERSION)
 INSTALL_DIR := $(HOME)/.local/share/ai-attn
 BIN_DIR := $(HOME)/.local/bin
 
 build:
-	go build -ldflags "-s -w" -o $(BIN) $(CMD)
+	go build -ldflags "-s -w -X main.version=v$(VERSION)" -o $(BIN) $(CMD)
 
 test:
 	go test ./...
