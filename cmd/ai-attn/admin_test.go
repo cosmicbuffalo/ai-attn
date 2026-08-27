@@ -120,6 +120,41 @@ func TestDoctorNotWiredSuggestsSetup(t *testing.T) {
 	}
 }
 
+func TestDoctorIgnoresAgentsThatAreNotInstalled(t *testing.T) {
+	home := withTempHome(t)
+	hookDir := filepath.Join(home, ".local", "share", "ai-attn", "hooks")
+	if err := os.MkdirAll(hookDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, hook := range []string{"claude.sh", "codex.sh", "opencode.sh"} {
+		if err := os.WriteFile(filepath.Join(hookDir, hook), []byte("#!/usr/bin/env bash\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	claudeDir := filepath.Join(home, ".claude")
+	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(claudeDir, "settings.json"), []byte(`{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"bash ~/.local/share/ai-attn/hooks/claude.sh"}]}]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rc, stdout, _ := runCLI(t, "doctor")
+	if rc != exitOK {
+		t.Fatalf("expected doctor to pass with only Claude installed, rc=%d output=%s", rc, stdout)
+	}
+	for _, field := range []string{
+		"hook_claude=installed",
+		"hook_codex=not_installed",
+		"hook_opencode=not_installed",
+		"All checks passed.",
+	} {
+		if !strings.Contains(stdout, field) {
+			t.Fatalf("expected %q in doctor output: %s", field, stdout)
+		}
+	}
+}
+
 // TestDoctorDetectsCodexWrapper verifies that doctor follows a wrapper script when
 // Codex hooks point at a script that itself invokes the canonical codex.sh, and
 // reports the hook as installed via the wrapper's path.
@@ -139,8 +174,8 @@ func TestDoctorDetectsCodexWrapper(t *testing.T) {
 		[]byte(`{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"bash `+wrapper+`","timeout":10}]}]}}`), 0o644)
 
 	rc, stdout, _ := runCLI(t, "doctor")
-	if rc == exitOK {
-		t.Fatalf("expected doctor to fail overall (claude/opencode unwired), got rc=%d", rc)
+	if rc != exitOK {
+		t.Fatalf("expected doctor to pass with only Codex installed, rc=%d output=%s", rc, stdout)
 	}
 	if !strings.Contains(stdout, "hook_codex=installed (via wrapper at "+wrapper) {
 		t.Fatalf("expected codex reported as installed via wrapper, got: %s", stdout)
@@ -208,8 +243,8 @@ func TestDoctorDetectsClaudeWrapper(t *testing.T) {
 		0o644)
 
 	rc, stdout, _ := runCLI(t, "doctor")
-	if rc == exitOK {
-		t.Fatalf("expected doctor to fail overall, got rc=%d", rc)
+	if rc != exitOK {
+		t.Fatalf("expected doctor to pass with only Claude installed, rc=%d output=%s", rc, stdout)
 	}
 	if !strings.Contains(stdout, "hook_claude=installed (via wrapper at "+wrapper) {
 		t.Fatalf("expected claude reported as installed via wrapper, got: %s", stdout)

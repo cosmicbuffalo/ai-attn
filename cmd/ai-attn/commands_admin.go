@@ -200,13 +200,14 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	hookDir := filepath.Join(homeDir(), ".local", "share", "ai-attn", "hooks")
 	type hookCheck struct {
 		script     string
+		configDir  string
 		configFile string
 		searchStr  string
 	}
 	hooks := []hookCheck{
-		{"claude.sh", filepath.Join(homeDir(), ".claude", "settings.json"), "ai-attn/hooks/claude.sh"},
-		{"codex.sh", filepath.Join(homeDir(), ".codex", "hooks.json"), "ai-attn/hooks/codex.sh"},
-		{"opencode.sh", filepath.Join(homeDir(), ".config", "opencode", "opencode.jsonc"), "ai-attn/plugins/opencode"},
+		{"claude.sh", filepath.Join(homeDir(), ".claude"), filepath.Join(homeDir(), ".claude", "settings.json"), "ai-attn/hooks/claude.sh"},
+		{"codex.sh", filepath.Join(homeDir(), ".codex"), filepath.Join(homeDir(), ".codex", "hooks.json"), "ai-attn/hooks/codex.sh"},
+		{"opencode.sh", filepath.Join(homeDir(), ".config", "opencode"), filepath.Join(homeDir(), ".config", "opencode", "opencode.jsonc"), "ai-attn/plugins/opencode"},
 	}
 	for _, check := range hooks {
 		agent := strings.TrimSuffix(check.script, ".sh")
@@ -216,8 +217,28 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 			allPassed = false
 			continue
 		}
+		configDirInfo, err := os.Stat(check.configDir)
+		if errors.Is(err, os.ErrNotExist) {
+			fmt.Fprintf(stdout, "hook_%s=not_installed (agent config directory not found at %s; not checked)\n", agent, check.configDir)
+			continue
+		}
+		if err != nil {
+			fmt.Fprintf(stdout, "hook_%s=config_error (could not inspect %s: %s)\n", agent, check.configDir, err)
+			allPassed = false
+			continue
+		}
+		if !configDirInfo.IsDir() {
+			fmt.Fprintf(stdout, "hook_%s=config_error (agent config path is not a directory: %s)\n", agent, check.configDir)
+			allPassed = false
+			continue
+		}
 		configData, err := os.ReadFile(check.configFile)
 		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				fmt.Fprintf(stdout, "hook_%s=config_error (could not read %s: %s)\n", agent, check.configFile, err)
+				allPassed = false
+				continue
+			}
 			if agent == "codex" && legacyCodexNotifyConfigured(check.searchStr) {
 				fmt.Fprintf(stdout, "hook_%s=legacy_notify (legacy ai-attn notify is present in %s; run 'ai-attn setup codex' to install current Codex hooks)\n",
 					agent, filepath.Join(homeDir(), ".codex", "config.toml"))

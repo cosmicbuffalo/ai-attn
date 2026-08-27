@@ -159,7 +159,7 @@ Show usage and list all commands.
 
 ### `ai-attn doctor`
 
-Check installation health: config file, state directory, hook scripts. Exits `0` if all checks pass, `1` if any check fails.
+Check installation health: config file, state directory, and hooks for installed agents. Agents whose config directory is absent are reported as `not_installed` and do not fail the check. Exits `0` if all checks pass, `1` if any check fails.
 
 ### `ai-attn version`
 

@@ -5,11 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.3.3] - 2026-08-27
 
 ### Changed
 
 - Increase the default state-record retention TTL from 72 hours to 90 days. Existing explicit `ttl_seconds` configuration remains unchanged.
+- `ai-attn doctor` now reports agents without a config directory as `not_installed` without failing diagnostics. Installed agents that are not wired still fail with a setup hint.
+- `make build` now embeds the repository version so source-built binaries remain compatible with version-checking consumers.
 
 ## [0.3.2] - 2026-07-10
 
@@ -95,6 +97,7 @@ Initial public release.
 - CI pipeline with formatting, linting, and test checks
 - Automated multi-platform release builds via GitHub Actions
 
+[0.3.3]: https://github.com/cosmicbuffalo/ai-attn/releases/tag/v0.3.3
 [0.3.2]: https://github.com/cosmicbuffalo/ai-attn/releases/tag/v0.3.2
 [0.3.1]: https://github.com/cosmicbuffalo/ai-attn/releases/tag/v0.3.1
 [0.3.0]: https://github.com/cosmicbuffalo/ai-attn/releases/tag/v0.3.0
