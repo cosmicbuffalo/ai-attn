@@ -9,11 +9,13 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// defaultConfig returns a Config with sensible defaults (enabled, 72h TTL).
+const defaultTTLSeconds = 90 * 24 * 3600
+
+// defaultConfig returns a Config with sensible defaults (enabled, 90-day TTL).
 func defaultConfig() Config {
 	return Config{
 		Enabled:    true,
-		TTLSeconds: 72 * 3600,
+		TTLSeconds: defaultTTLSeconds,
 	}
 }
 

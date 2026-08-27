@@ -85,7 +85,7 @@ Polling consumers parse the output of `ai-attn list --json`:
 {
   "version": 1,
   "generated_at": 1710000000,
-  "ttl_seconds": 259200,
+  "ttl_seconds": 7776000,
   "records": [
     {
       "version": 1,
@@ -240,13 +240,13 @@ Default config: `~/.config/ai-attn/config.toml` — optional; built-in defaults 
 
 ```toml
 enabled = true
-ttl_seconds = 259200
+ttl_seconds = 7776000
 ```
 
 | Field | Description |
 |-------|-------------|
 | `enabled` | Master switch. When `false`, `set-state` is a no-op. |
-| `ttl_seconds` | Seconds before a record expires. Default: 259200 (72 hours). GC removes any record older than `ttl_seconds` regardless of state. |
+| `ttl_seconds` | Seconds before a record expires. Default: 7776000 (90 days). GC removes any record older than `ttl_seconds` regardless of state. |
 
 ## Platform Notes
 
