@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- Increase the default state-record retention TTL from 72 hours to 90 days. Existing explicit `ttl_seconds` configuration remains unchanged.
+
 ## [0.3.2] - 2026-07-10
 
 ### Fixed
