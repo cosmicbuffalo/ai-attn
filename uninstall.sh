@@ -37,5 +37,9 @@ if [ -f "$opencode_jsonc" ] && grep -q "ai-attn" "$opencode_jsonc" 2>/dev/null; 
   echo "    - OpenCode:    $opencode_jsonc (plugin array)"
 fi
 
+if command -v muse >/dev/null 2>&1; then
+  echo "    - Muse:        'muse plugins remove ai-attn' (installed plugin)"
+fi
+
 echo "  Leftover hook entries are harmless (they exit 0 if ai-attn is missing)"
 echo "  but can be removed for cleanliness."

@@ -1,17 +1,17 @@
 # ai-attn
 
-Minimal attention signal layer for AI CLIs (Claude Code, Codex, OpenCode), designed to feed tmux status bars, notification daemons, or any external consumer.
+Minimal attention signal layer for AI CLIs (Claude Code, Codex, OpenCode, Muse), designed to feed tmux status bars, notification daemons, or any external consumer.
 
 AI coding agents spend most of their time working autonomously, but occasionally get stuck waiting for a human, whether for a permission prompt, a question, or just signaling they're done and ready for their next task. Without a notification layer, you're stuck watching the terminal or worrying that your agent is blocked while you're not looking. ai-attn is the first part of my attempt at addressing this problem. It allows your agent to write out signals with hook events and exposed them through a normalized and predictable interface so that you can build the rest of your notification layer on top of it using whatever tools work best for your workflow. Hook it up to tmux, or a telegram bot or whatever and stop stressing about not babysitting your agents closely enough.
 
 ## How It Works
 
 ```
-AI Agent (Claude/Codex/OpenCode)
+AI Agent (Claude/Codex/OpenCode/Muse)
     │
     │  hook event (JSON on stdin or argv)
     ▼
-Hook Script (claude.sh / codex.sh / opencode.sh)
+Hook Script (claude.sh / codex.sh / opencode.sh / muse plugin)
     │
     │  ai-attn hook --agent claude/codex
     ▼
@@ -54,7 +54,7 @@ curl -fsSL https://raw.githubusercontent.com/cosmicbuffalo/ai-attn/main/install.
 
 ### Wiring Hooks
 
-`install.sh` runs `ai-attn setup` automatically after installing the binary. Setup auto-detects which agents are installed by checking for their config directories (`~/.claude`, `~/.codex`, `~/.config/opencode`) and wires hooks into those found. Re-running `ai-attn setup` is idempotent — existing ai-attn entries are removed and re-added fresh, so other settings and non-ai-attn hooks are preserved.
+`install.sh` runs `ai-attn setup` automatically after installing the binary. Setup auto-detects which agents are installed by checking for their config directories (`~/.claude`, `~/.codex`, `~/.config/opencode`, `~/.config/muse`) and wires hooks into those found. Re-running `ai-attn setup` is idempotent — existing ai-attn entries are removed and re-added fresh, so other settings and non-ai-attn hooks are preserved.
 
 If setup didn't run (e.g. the agent was installed after ai-attn) or only some agents were detected, you can run it yourself:
 
@@ -191,17 +191,19 @@ Create the default config file at `~/.config/ai-attn/config.toml` if it doesn't 
 
 ### `ai-attn setup [--dry-run] [agent]`
 
-Install ai-attn hooks into an agent's config file. With no argument, auto-detects installed agents (`claude`, `codex`, `opencode`) by checking for their config directories and sets up those found. Supported explicit subjects:
+Install ai-attn hooks into an agent's config file. With no argument, auto-detects installed agents (`claude`, `codex`, `opencode`, `muse`) by checking for their config directories and sets up those found. Supported explicit subjects:
 
 - `claude` — writes 11 hook entries into `~/.claude/settings.json`
 - `codex` — writes `UserPromptSubmit`, `PermissionRequest`, `PreToolUse`, `PostToolUse`, and `Stop` hook entries into `~/.codex/hooks.json`
 - `opencode` — appends the bundled plugin path to the `plugin` array in `~/.config/opencode/opencode.jsonc`
+- `muse` — installs the bundled plugin with `muse plugins install` and trusts it with `muse plugins approve`
 
 Safe to re-run: existing ai-attn entries are removed and re-added fresh on each invocation, so non-ai-attn hooks, top-level settings, and other plugins are preserved. `--dry-run` previews changes without writing.
 
 One case requires explicit opt-in via `--force`:
 
 - **OpenCode**'s setup rewrites `opencode.jsonc` as plain JSON, which would drop `//` and `/* */` comments. If the file contains comments, setup refuses unless `--force` is passed.
+- **Muse** cannot be wired by editing a config file: its hooks are delivered as a plugin, so setup shells out to `muse plugins install` and `muse plugins approve` instead. Both steps run on every setup, because Muse pins its trust decision to the bundle's content hash and an updated bundle needs a fresh approval.
 
 The alternative is to wire the hook manually (see [AGENTS.md](AGENTS.md)).
 
@@ -267,6 +269,7 @@ bash ~/.local/share/ai-attn/uninstall.sh --purge  # also removes state files and
 - **Claude Code:** Remove the ai-attn hook entries from `~/.claude/settings.json` (in the `hooks` section).
 - **Codex:** Remove the ai-attn hook entries from `~/.codex/hooks.json`. Also remove any old ai-attn `notify` entry from `~/.codex/config.toml` if it remains from a pre-hooks setup.
 - **OpenCode:** Remove the `~/.local/share/ai-attn/plugins/opencode` entry from the `plugin` array in `~/.config/opencode/opencode.jsonc`.
+- **Muse:** Run `muse plugins remove ai-attn`.
 
 Leftover hook entries are harmless — the hook scripts always `exit 0` even if ai-attn is missing — but you can remove them for cleanliness.
 

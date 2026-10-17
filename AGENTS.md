@@ -236,6 +236,60 @@ The plugin hooks into OpenCode's event system and maps events to ai-attn states:
 | `session.idle`         | done          | Agent turn complete              |
 | `session.error`        | stopped       | Agent encountered an error       |
 
+## Muse
+
+Wire ai-attn into Muse using its plugin system. The ai-attn install includes a ready-made Muse plugin whose hooks report attention state.
+
+Muse is the one supported agent that cannot be wired by editing a config file — hook capabilities are only delivered through plugins, and Muse must be told to trust them before they run.
+
+### Steps
+
+1. Ensure ai-attn is installed (see Prerequisites above) and that `~/.local/share/ai-attn/plugins/muse/.muse-plugin/plugin.json` exists. If it does not, re-run the installer.
+
+2. Install the bundle. Muse copies it into its own package cache, so the source directory is read once and not linked:
+
+   ```bash
+   muse plugins install "$HOME/.local/share/ai-attn/plugins/muse" --scope user
+   ```
+
+3. Trust the plugin's hook capabilities. Until this runs, the hooks are installed but inert:
+
+   ```bash
+   muse plugins approve ai-attn
+   ```
+
+4. Verify the hooks are registered:
+
+   ```bash
+   muse plugins inspect ai-attn --json
+   ```
+
+Re-run steps 2 and 3 together whenever ai-attn is upgraded. Muse pins its trust decision to the bundle's content hash, so a new bundle needs a fresh approval.
+
+If Muse reports that plugins are unavailable in this build, its plugin subsystem is gated off and no hook wiring is possible. Setting `MUSE_EXPERIMENTAL_PLUGINS=1` in the environment enables it on builds where the gate is present but off by default; `ai-attn setup muse` sets it automatically.
+
+### How It Works
+
+The plugin's hooks pipe Muse's event payload to `ai-attn hook --agent muse`. Muse emits Claude-shaped payloads — the same `hook_event_name` vocabulary and the same `session_id`/`cwd` fields — so the mapping mirrors the Claude one:
+
+| Muse Event           | ai-attn State | Meaning                          |
+|----------------------|---------------|----------------------------------|
+| `UserPromptSubmit`   | working       | User submitted a prompt          |
+| `PostToolUse`        | working       | Agent is running tools           |
+| `PermissionRequest`  | waiting       | Agent needs permission           |
+| `Notification`       | waiting       | Agent is blocked on a human      |
+| `Stop`               | done          | Agent turn complete              |
+| `PostToolUseFailure` | stopped       | A tool call failed               |
+| `StopFailure`        | stopped       | The turn ended in failure        |
+| `SessionEnd`         | (cleared)     | Session record removed           |
+
+Two constraints shape the bundle:
+
+- **One source file per hook.** Muse rejects a manifest that points two hook capabilities at the same script (`reuses source ... already used by`), so each event has its own launcher in `hooks/` and the shared logic lives in `hooks/_common.sh`, which is sourced rather than named as a hook command.
+- **No tmux environment.** Muse runs hooks with a scrubbed environment — only `HOME`, `LANG`, `LOGNAME`, `PATH`, `PWD`, `SHELL`, `SHLVL`, `TERM`, `USER` and the plugin's own `MUSE_PLUGIN_*`/`CLAUDE_PLUGIN_*` variables survive. `TMUX` and `TMUX_PANE` do not, so Muse records carry no `pane_id` and no `socket`. This is expected: consumers route them by agent and cwd instead. In pmux this is the same path already used for detached Claude agents, so a Muse session is claimed correctly as long as no two pmux sessions run Muse in the same directory.
+
+`PreToolUse` is deliberately not wired. `PostToolUse` already provides the working heartbeat, and hooking both would double the process spawns per tool call for no extra signal.
+
 ## Post-Setup Verification
 
 After wiring hooks, run the following checks:

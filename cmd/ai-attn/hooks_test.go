@@ -706,3 +706,150 @@ func TestPermissionClearCycleSameKey(t *testing.T) {
 		t.Fatalf("expected no waiting records after UserPromptSubmit from different CWD: %s", out4)
 	}
 }
+
+// TestHookMuseLifecycle walks a Muse session through the states its plugin
+// reports: prompt submitted (working), permission dialog (waiting), turn
+// complete (done).
+func TestHookMuseLifecycle(t *testing.T) {
+	withTempHome(t)
+
+	steps := []struct {
+		event string
+		state string
+	}{
+		{"UserPromptSubmit", "working"},
+		{"PostToolUse", "working"},
+		{"PermissionRequest", "waiting"},
+		{"Stop", "done"},
+	}
+	for _, step := range steps {
+		var stdout, stderr bytes.Buffer
+		payload := `{"hook_event_name":"` + step.event + `","session_id":"muse-1","cwd":"/work"}`
+		rc := run([]string{"hook", "--agent", "muse"}, strings.NewReader(payload), &stdout, &stderr)
+		if rc != exitOK {
+			t.Fatalf("%s: hook rc=%d stderr=%s", step.event, rc, stderr.String())
+		}
+		_, statusOut, _ := runCLI(t, "status", "--agent", "muse", "--session-id", "muse-1")
+		if !strings.Contains(statusOut, "state="+step.state) {
+			t.Fatalf("%s: expected state=%s, got %s", step.event, step.state, statusOut)
+		}
+	}
+}
+
+// TestHookMuseNotificationSetsWaiting verifies that Muse's Notification event
+// marks the session as waiting. Unlike Claude, Muse carries no
+// notification_type discriminator, so every Notification counts.
+func TestHookMuseNotificationSetsWaiting(t *testing.T) {
+	withTempHome(t)
+	var stdout, stderr bytes.Buffer
+	payload := `{"hook_event_name":"Notification","session_id":"muse-n1","cwd":"/work"}`
+	rc := run([]string{"hook", "--agent", "muse"}, strings.NewReader(payload), &stdout, &stderr)
+	if rc != exitOK {
+		t.Fatalf("hook rc=%d stderr=%s", rc, stderr.String())
+	}
+	rc, statusOut, _ := runCLI(t, "status", "--agent", "muse", "--session-id", "muse-n1")
+	if rc != exitError || !strings.Contains(statusOut, "state=waiting") {
+		t.Fatalf("expected waiting: rc=%d out=%s", rc, statusOut)
+	}
+}
+
+// TestHookMuseRecordHasNoPaneOrSocket documents the defining constraint of the
+// Muse integration: Muse scrubs TMUX and TMUX_PANE out of the hook
+// environment, so records are written without pane or socket scoping and must
+// be routed by agent and cwd downstream.
+func TestHookMuseRecordHasNoPaneOrSocket(t *testing.T) {
+	withTempHome(t)
+	var stdout, stderr bytes.Buffer
+	payload := `{"hook_event_name":"UserPromptSubmit","session_id":"muse-p1","cwd":"/work/project"}`
+	rc := run([]string{"hook", "--agent", "muse"}, strings.NewReader(payload), &stdout, &stderr)
+	if rc != exitOK {
+		t.Fatalf("hook rc=%d stderr=%s", rc, stderr.String())
+	}
+	record, err := readRecord(stateFile(sessionKey("muse", "muse-p1", "", "")))
+	if err != nil {
+		t.Fatalf("read record: %v", err)
+	}
+	if record.PaneID != "" || record.Socket != "" {
+		t.Fatalf("expected no pane/socket scoping, got pane=%q socket=%q", record.PaneID, record.Socket)
+	}
+	if record.CWD != "/work/project" {
+		t.Fatalf("expected cwd to be preserved for relay matching, got %q", record.CWD)
+	}
+}
+
+// TestHookMuseSessionEndRemovesState verifies SessionEnd clears the record.
+func TestHookMuseSessionEndRemovesState(t *testing.T) {
+	withTempHome(t)
+	var stdout, stderr bytes.Buffer
+	rc := run([]string{"hook", "--agent", "muse"}, strings.NewReader(`{"hook_event_name":"PermissionRequest","session_id":"muse-se","cwd":"/work"}`), &stdout, &stderr)
+	if rc != exitOK {
+		t.Fatalf("hook set rc=%d stderr=%s", rc, stderr.String())
+	}
+	key := sessionKey("muse", "muse-se", "", "")
+	if _, err := os.Stat(stateFile(key)); err != nil {
+		t.Fatalf("expected state file after PermissionRequest: %v", err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	rc = run([]string{"hook", "--agent", "muse"}, strings.NewReader(`{"hook_event_name":"SessionEnd","session_id":"muse-se","cwd":"/work"}`), &stdout, &stderr)
+	if rc != exitOK {
+		t.Fatalf("hook SessionEnd rc=%d stderr=%s", rc, stderr.String())
+	}
+	if _, err := os.Stat(stateFile(key)); !os.IsNotExist(err) {
+		t.Fatalf("expected state file removed after SessionEnd, err=%v", err)
+	}
+}
+
+// TestHookMuseWithoutSessionIDIsNoop verifies that a payload with no session
+// id writes nothing rather than synthesising a ppid-based key, which for Muse
+// would identify the session host instead of the session.
+func TestHookMuseWithoutSessionIDIsNoop(t *testing.T) {
+	withTempHome(t)
+	var stdout, stderr bytes.Buffer
+	rc := run([]string{"hook", "--agent", "muse"}, strings.NewReader(`{"hook_event_name":"Stop","cwd":"/work"}`), &stdout, &stderr)
+	if rc != exitOK {
+		t.Fatalf("hook rc=%d stderr=%s", rc, stderr.String())
+	}
+	_, listOut, _ := runCLI(t, "list", "--json")
+	if strings.Contains(listOut, `"agent":"muse"`) {
+		t.Fatalf("expected no muse record, got %s", listOut)
+	}
+}
+
+// TestHookMuseInvalidJSONIsNoop verifies malformed input never fails the turn.
+func TestHookMuseInvalidJSONIsNoop(t *testing.T) {
+	withTempHome(t)
+	var stdout, stderr bytes.Buffer
+	rc := run([]string{"hook", "--agent", "muse"}, strings.NewReader(`not json`), &stdout, &stderr)
+	if rc != exitOK {
+		t.Fatalf("expected exitOK for malformed payload, got rc=%d", rc)
+	}
+}
+
+// TestMatchMuseEvent covers the event-to-state table directly.
+func TestMatchMuseEvent(t *testing.T) {
+	cases := []struct {
+		event string
+		state string
+		ok    bool
+	}{
+		{"UserPromptSubmit", "working", true},
+		{"PreToolUse", "working", true},
+		{"PostToolUse", "working", true},
+		{"PermissionRequest", "waiting", true},
+		{"Notification", "waiting", true},
+		{"Stop", "done", true},
+		{"PostToolUseFailure", "stopped", true},
+		{"StopFailure", "stopped", true},
+		{"SubagentStart", "", false},
+		{"PreCompact", "", false},
+		{"", "", false},
+	}
+	for _, c := range cases {
+		state, _, ok := matchMuseEvent(c.event)
+		if ok != c.ok || state != c.state {
+			t.Errorf("matchMuseEvent(%q) = (%q, %v), want (%q, %v)", c.event, state, ok, c.state, c.ok)
+		}
+	}
+}

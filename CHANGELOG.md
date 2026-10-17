@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Support Muse as a fourth agent. `ai-attn hook --agent muse` parses Muse's
+  Claude-shaped hook payloads, and a new plugin bundle at
+  `plugins/muse` wires the events through `muse plugins install` /
+  `muse plugins approve`, which `ai-attn setup muse` drives automatically.
+  Muse is auto-detected from `~/.config/muse`.
+
+  Muse runs hooks with a scrubbed environment that drops `TMUX` and
+  `TMUX_PANE`, so Muse records carry no `pane_id` or `socket` and are routed
+  by agent and cwd instead. The bundle uses one launcher script per event
+  because Muse rejects a manifest that reuses a hook source.
+
+### Fixed
+
+- `make install` now installs the bundled OpenCode plugin files.
+  `ai-attn setup opencode` has always pointed OpenCode at
+  `~/.local/share/ai-attn/plugins/opencode`, but only `install.sh` populated
+  that directory, so a `make install` install wired OpenCode to a path that
+  did not exist.
+
 ## [0.3.3] - 2026-08-27
 
 ### Changed

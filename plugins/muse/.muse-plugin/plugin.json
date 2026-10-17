@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "name": "ai-attn",
+  "displayName": "ai-attn Attention Signals",
+  "version": "0.1.0",
+  "description": "Reports Muse waiting/working/done lifecycle states to ai-attn for tmux status bars and notification daemons.",
+  "compat": {
+    "source": "native",
+    "manifestDir": ".muse-plugin"
+  },
+  "capabilities": {
+    "skills": [],
+    "commands": [],
+    "hooks": [
+      {
+        "id": "user-prompt-submit",
+        "event": "UserPromptSubmit",
+        "command": ["sh", "hooks/user_prompt_submit.sh"],
+        "timeoutMs": 5000,
+        "async": true
+      },
+      {
+        "id": "permission-request",
+        "event": "PermissionRequest",
+        "command": ["sh", "hooks/permission_request.sh"],
+        "timeoutMs": 5000,
+        "async": true
+      },
+      {
+        "id": "notification",
+        "event": "Notification",
+        "command": ["sh", "hooks/notification.sh"],
+        "timeoutMs": 5000,
+        "async": true
+      },
+      {
+        "id": "post-tool-use",
+        "event": "PostToolUse",
+        "command": ["sh", "hooks/post_tool_use.sh"],
+        "timeoutMs": 5000,
+        "async": true
+      },
+      {
+        "id": "post-tool-use-failure",
+        "event": "PostToolUseFailure",
+        "command": ["sh", "hooks/post_tool_use_failure.sh"],
+        "timeoutMs": 5000,
+        "async": true
+      },
+      {
+        "id": "stop",
+        "event": "Stop",
+        "command": ["sh", "hooks/stop.sh"],
+        "timeoutMs": 5000,
+        "async": true
+      },
+      {
+        "id": "stop-failure",
+        "event": "StopFailure",
+        "command": ["sh", "hooks/stop_failure.sh"],
+        "timeoutMs": 5000,
+        "async": true
+      },
+      {
+        "id": "session-end",
+        "event": "SessionEnd",
+        "command": ["sh", "hooks/session_end.sh"],
+        "timeoutMs": 5000,
+        "async": true
+      }
+    ],
+    "mcpServers": [],
+    "reminders": []
+  }
+}
