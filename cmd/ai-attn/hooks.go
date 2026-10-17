@@ -14,7 +14,7 @@ import (
 func cmdHook(args []string, stdin io.Reader, _, stderr io.Writer) int {
 	fs := flag.NewFlagSet("hook", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	agent := fs.String("agent", "", "Agent type: claude or codex")
+	agent := fs.String("agent", "", "Agent type: claude, codex, opencode, or muse")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitOK
@@ -43,6 +43,8 @@ func cmdHook(args []string, stdin io.Reader, _, stderr io.Writer) int {
 		return hookCodex(input, stderr)
 	case "opencode":
 		return hookOpencode(input, stderr)
+	case "muse":
+		return hookMuse(input, stderr)
 	default:
 		fmt.Fprintf(stderr, "hook: unknown agent %q\n", *agent)
 		return exitUsage
@@ -257,6 +259,85 @@ func matchOpencodeEvent(eventType string, raw map[string]any) (state, reason str
 		return "done", "session.deleted", true
 	}
 
+	return "", "", false
+}
+
+// hookMuse parses a Muse hook JSON payload and writes the corresponding state record.
+//
+// Muse emits Claude-shaped payloads — the same hook_event_name vocabulary and
+// the same session_id/cwd fields — so the parsing mirrors hookClaude. The one
+// structural difference is the environment: Muse runs hooks with a scrubbed
+// env that drops TMUX and TMUX_PANE, so these records carry no pane_id and no
+// socket. Downstream consumers route them by agent and cwd instead.
+func hookMuse(hookPayload string, stderr io.Writer) int {
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(hookPayload), &payload); err != nil {
+		return exitOK
+	}
+
+	event := stringFromMap(payload, "hook_event_name")
+	sessionID := stringFromMap(payload, "session_id")
+	cwd := stringFromMap(payload, "cwd")
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
+
+	// Muse always supplies a session UUID. The pane fallbacks the codex and
+	// opencode handlers use are deliberately absent: TMUX_PANE is never set
+	// inside a Muse hook, so they would only ever produce a ppid key tied to
+	// Muse's session host rather than the session itself.
+	if sessionID == "" {
+		return exitOK
+	}
+
+	if event == "SessionEnd" {
+		identity := sessionIdentity{
+			Agent:     "muse",
+			SessionID: sessionID,
+			PaneID:    os.Getenv("TMUX_PANE"),
+			Socket:    tmuxSocket(),
+		}
+		key := sessionKey(identity.Agent, identity.SessionID, identity.PaneID, identity.Socket)
+		if err := os.Remove(stateFile(key)); err != nil && !os.IsNotExist(err) {
+			fmt.Fprintf(stderr, "ai-attn: warning: failed to remove state file: %v\n", err)
+		}
+		if err := removeCompatibleLegacyRecord(identity, key); err != nil {
+			fmt.Fprintf(stderr, "ai-attn: warning: failed to remove legacy state file: %v\n", err)
+		}
+		return exitOK
+	}
+
+	state, reason, ok := matchMuseEvent(event)
+	if !ok {
+		return exitOK
+	}
+
+	return writeHookState(state, "muse", sessionID, cwd, reason, stderr)
+}
+
+// matchMuseEvent maps a Muse hook event to an ai-attn state and reason.
+//
+// The mapping follows Muse's own herdr lifecycle plugin (prompt and tool
+// activity mean working, permission and notification dialogs mean the agent
+// is blocked on a human, Stop means the turn is over), reconciled with the
+// state names hookClaude already uses for the identical event vocabulary.
+//
+// PreToolUse is intentionally not wired in the plugin manifest: PostToolUse
+// already provides the working heartbeat, and hooking both would double the
+// process spawns per tool call for no additional signal.
+func matchMuseEvent(event string) (state, reason string, ok bool) {
+	switch event {
+	case "UserPromptSubmit", "PreToolUse", "PostToolUse":
+		return "working", event, true
+	case "PermissionRequest":
+		return "waiting", "permission_request", true
+	case "Notification":
+		return "waiting", "notification", true
+	case "Stop":
+		return "done", "agent-turn-complete", true
+	case "PostToolUseFailure", "StopFailure":
+		return "stopped", event, true
+	}
 	return "", "", false
 }
 

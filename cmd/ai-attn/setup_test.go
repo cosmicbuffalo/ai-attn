@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -778,5 +779,130 @@ func TestStripJSONCComments(t *testing.T) {
 				t.Errorf("stripJSONCComments(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+// museBundle writes a minimal plugin bundle where setupMuse expects it.
+func museBundle(t *testing.T, home string) string {
+	t.Helper()
+	dir := filepath.Join(home, ".local", "share", "ai-attn", "plugins", "muse")
+	if err := os.MkdirAll(filepath.Join(dir, ".muse-plugin"), 0o755); err != nil {
+		t.Fatalf("mkdir bundle: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".muse-plugin", "plugin.json"), []byte(`{"schemaVersion":1}`), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	return dir
+}
+
+// fakeMuse puts a stub `muse` on PATH that appends its argv to a log file, so
+// tests can assert what setup invoked without needing Muse installed.
+func fakeMuse(t *testing.T, home string, exitCode int) string {
+	t.Helper()
+	binDir := filepath.Join(home, "fakebin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir fakebin: %v", err)
+	}
+	logPath := filepath.Join(home, "muse-invocations.log")
+	script := "#!/bin/sh\necho \"$@\" >> " + logPath + "\nexit " + strconv.Itoa(exitCode) + "\n"
+	if err := os.WriteFile(filepath.Join(binDir, "muse"), []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake muse: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return logPath
+}
+
+// TestDetectAgentsFindsMuse verifies ~/.config/muse marks Muse as installed.
+func TestDetectAgentsFindsMuse(t *testing.T) {
+	home := withTempHome(t)
+	os.MkdirAll(filepath.Join(home, ".config", "muse"), 0o755)
+
+	found := false
+	for _, a := range detectAgents() {
+		if a == "muse" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected muse in detectAgents(), got %v", detectAgents())
+	}
+}
+
+// TestSetupMuseInstallsPlugin verifies setup drives `muse plugins install`
+// followed by `muse plugins approve` — the trust step is required or the hooks
+// stay inert.
+func TestSetupMuseInstallsPlugin(t *testing.T) {
+	home := withTempHome(t)
+	bundle := museBundle(t, home)
+	logPath := fakeMuse(t, home, 0)
+
+	rc, stdout, stderr := runCLI(t, "setup", "muse")
+	if rc != exitOK {
+		t.Fatalf("expected exit 0, got %d (stderr=%s)", rc, stderr)
+	}
+	if !strings.Contains(stdout, "muse: installed plugin") {
+		t.Fatalf("unexpected output: %s", stdout)
+	}
+
+	logged, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read invocation log: %v", err)
+	}
+	got := string(logged)
+	if !strings.Contains(got, "plugins install "+bundle+" --scope user") {
+		t.Fatalf("expected install invocation, got %q", got)
+	}
+	if !strings.Contains(got, "plugins approve ai-attn") {
+		t.Fatalf("expected approve invocation, got %q", got)
+	}
+}
+
+// TestSetupMuseDryRunWritesNothing verifies --dry-run never invokes Muse.
+func TestSetupMuseDryRunWritesNothing(t *testing.T) {
+	home := withTempHome(t)
+	museBundle(t, home)
+	logPath := fakeMuse(t, home, 0)
+
+	rc, stdout, _ := runCLI(t, "setup", "--dry-run", "muse")
+	if rc != exitOK {
+		t.Fatalf("expected exit 0, got %d", rc)
+	}
+	if !strings.Contains(stdout, "would install plugin") {
+		t.Fatalf("unexpected output: %s", stdout)
+	}
+	if _, err := os.Stat(logPath); !os.IsNotExist(err) {
+		t.Fatalf("dry-run invoked muse, err=%v", err)
+	}
+}
+
+// TestSetupMuseMissingBundleIsError verifies a missing bundle reports clearly
+// rather than shelling out and failing obscurely.
+func TestSetupMuseMissingBundleIsError(t *testing.T) {
+	home := withTempHome(t)
+	fakeMuse(t, home, 0)
+
+	rc, _, stderr := runCLI(t, "setup", "muse")
+	if rc == exitOK {
+		t.Fatalf("expected non-zero exit for missing bundle")
+	}
+	if !strings.Contains(stderr, "plugin bundle not found") {
+		t.Fatalf("unexpected stderr: %s", stderr)
+	}
+}
+
+// TestSetupMuseReportsGateFailure verifies a failing `muse plugins` call
+// surfaces Muse's own message — the common case being a build where the
+// plugin subsystem is gated off.
+func TestSetupMuseReportsGateFailure(t *testing.T) {
+	home := withTempHome(t)
+	museBundle(t, home)
+	fakeMuse(t, home, 1)
+
+	rc, _, stderr := runCLI(t, "setup", "muse")
+	if rc == exitOK {
+		t.Fatalf("expected non-zero exit when muse rejects the install")
+	}
+	if !strings.Contains(stderr, "plugins are unavailable") && !strings.Contains(stderr, "failed") {
+		t.Fatalf("unexpected stderr: %s", stderr)
 	}
 }

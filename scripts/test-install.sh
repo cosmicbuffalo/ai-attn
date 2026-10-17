@@ -23,11 +23,15 @@ mkdir -p \
   "$release_dir" \
   "$fake_bin" \
   "$source_dir/hooks" \
-  "$source_dir/plugins/opencode"
+  "$source_dir/plugins/opencode" \
+  "$source_dir/plugins/muse/.muse-plugin" \
+  "$source_dir/plugins/muse/hooks"
 cp "$repo_root/install.sh" "$runner_dir/install.sh"
 cp "$repo_root/hooks/"*.sh "$source_dir/hooks/"
 cp "$repo_root/plugins/opencode/index.mjs" "$source_dir/plugins/opencode/index.mjs"
 cp "$repo_root/plugins/opencode/package.json" "$source_dir/plugins/opencode/package.json"
+cp "$repo_root/plugins/muse/.muse-plugin/plugin.json" "$source_dir/plugins/muse/.muse-plugin/plugin.json"
+cp "$repo_root/plugins/muse/hooks/"*.sh "$source_dir/plugins/muse/hooks/"
 cp "$repo_root/uninstall.sh" "$source_dir/uninstall.sh"
 
 asset="ai-attn-${platform}"

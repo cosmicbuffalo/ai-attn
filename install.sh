@@ -24,6 +24,7 @@ if [ -n "${BASH_SOURCE[0]:-}" ]; then
 fi
 
 PLUGIN_DIR="${INSTALL_DIR}/plugins/opencode"
+MUSE_PLUGIN_DIR="${INSTALL_DIR}/plugins/muse"
 
 if [ "${1:-}" = "--force" ]; then
   FORCE_OVERWRITE=1
@@ -270,7 +271,7 @@ download_file() {
 
 # Install hooks and support scripts
 install_scripts() {
-  mkdir -p "$PLUGIN_DIR"
+  mkdir -p "$PLUGIN_DIR" "$MUSE_PLUGIN_DIR/.muse-plugin" "$MUSE_PLUGIN_DIR/hooks"
   if [ "$FROM_REPO" -eq 1 ]; then
     install -m 0755 "$SCRIPT_DIR/hooks/_common.sh" "$INSTALL_DIR/hooks/_common.sh"
     install -m 0755 "$SCRIPT_DIR/hooks/claude.sh" "$INSTALL_DIR/hooks/claude.sh"
@@ -278,6 +279,16 @@ install_scripts() {
     install -m 0755 "$SCRIPT_DIR/hooks/opencode.sh" "$INSTALL_DIR/hooks/opencode.sh"
     install -m 0644 "$SCRIPT_DIR/plugins/opencode/index.mjs" "$PLUGIN_DIR/index.mjs"
     install -m 0644 "$SCRIPT_DIR/plugins/opencode/package.json" "$PLUGIN_DIR/package.json"
+    install -m 0644 "$SCRIPT_DIR/plugins/muse/.muse-plugin/plugin.json" "$MUSE_PLUGIN_DIR/.muse-plugin/plugin.json"
+    install -m 0755 "$SCRIPT_DIR/plugins/muse/hooks/_common.sh" "$MUSE_PLUGIN_DIR/hooks/_common.sh"
+    install -m 0755 "$SCRIPT_DIR/plugins/muse/hooks/user_prompt_submit.sh" "$MUSE_PLUGIN_DIR/hooks/user_prompt_submit.sh"
+    install -m 0755 "$SCRIPT_DIR/plugins/muse/hooks/permission_request.sh" "$MUSE_PLUGIN_DIR/hooks/permission_request.sh"
+    install -m 0755 "$SCRIPT_DIR/plugins/muse/hooks/notification.sh" "$MUSE_PLUGIN_DIR/hooks/notification.sh"
+    install -m 0755 "$SCRIPT_DIR/plugins/muse/hooks/post_tool_use.sh" "$MUSE_PLUGIN_DIR/hooks/post_tool_use.sh"
+    install -m 0755 "$SCRIPT_DIR/plugins/muse/hooks/post_tool_use_failure.sh" "$MUSE_PLUGIN_DIR/hooks/post_tool_use_failure.sh"
+    install -m 0755 "$SCRIPT_DIR/plugins/muse/hooks/stop.sh" "$MUSE_PLUGIN_DIR/hooks/stop.sh"
+    install -m 0755 "$SCRIPT_DIR/plugins/muse/hooks/stop_failure.sh" "$MUSE_PLUGIN_DIR/hooks/stop_failure.sh"
+    install -m 0755 "$SCRIPT_DIR/plugins/muse/hooks/session_end.sh" "$MUSE_PLUGIN_DIR/hooks/session_end.sh"
     install -m 0755 "$SCRIPT_DIR/uninstall.sh" "$INSTALL_DIR/uninstall.sh"
   else
     for hook in _common.sh claude.sh codex.sh opencode.sh; do
@@ -286,6 +297,11 @@ install_scripts() {
     done
     download_file "$PLUGIN_DIR/index.mjs" "plugins/opencode/index.mjs"
     download_file "$PLUGIN_DIR/package.json" "plugins/opencode/package.json"
+    download_file "$MUSE_PLUGIN_DIR/.muse-plugin/plugin.json" "plugins/muse/.muse-plugin/plugin.json"
+    for hook in _common.sh user_prompt_submit.sh permission_request.sh notification.sh post_tool_use.sh post_tool_use_failure.sh stop.sh stop_failure.sh session_end.sh; do
+      download_file "$MUSE_PLUGIN_DIR/hooks/$hook" "plugins/muse/hooks/$hook"
+      chmod +x "$MUSE_PLUGIN_DIR/hooks/$hook"
+    done
     download_file "$INSTALL_DIR/uninstall.sh" "uninstall.sh"
     chmod +x "$INSTALL_DIR/uninstall.sh"
   fi

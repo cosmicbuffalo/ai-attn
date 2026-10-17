@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -35,7 +36,7 @@ var codexHookEvents = []string{
 	"Stop",
 }
 
-var allAgents = []string{"claude", "codex", "opencode"}
+var allAgents = []string{"claude", "codex", "opencode", "muse"}
 
 func cmdSetup(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("setup", flag.ContinueOnError)
@@ -55,7 +56,8 @@ those found.
 Supported agents:
   claude    Install hooks into ~/.claude/settings.json
   codex     Install hooks into ~/.codex/hooks.json
-  opencode  Install plugin into ~/.config/opencode/opencode.jsonc`)
+  opencode  Install plugin into ~/.config/opencode/opencode.jsonc
+  muse      Install plugin into Muse via 'muse plugins install'`)
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -98,6 +100,8 @@ Supported agents:
 			rc = setupCodex(stdout, stderr, *dryRun, *force)
 		case "opencode":
 			rc = setupOpencode(stdout, stderr, *dryRun, *force)
+		case "muse":
+			rc = setupMuse(stdout, stderr, *dryRun)
 		}
 		if rc != exitOK {
 			exitCode = rc
@@ -115,6 +119,7 @@ func detectAgents() []string {
 		{"claude", filepath.Join(home, ".claude")},
 		{"codex", filepath.Join(home, ".codex")},
 		{"opencode", filepath.Join(home, ".config", "opencode")},
+		{"muse", filepath.Join(home, ".config", "muse")},
 	}
 	var detected []string
 	for _, c := range checks {
@@ -129,6 +134,7 @@ const (
 	claudeHookSuffix   = "ai-attn/hooks/claude.sh"
 	codexHookSuffix    = "ai-attn/hooks/codex.sh"
 	aiAttnPluginMarker = "ai-attn/plugins/opencode"
+	musePluginID       = "ai-attn"
 )
 
 func setupClaude(stdout, stderr io.Writer, dryRun bool) int {
@@ -361,6 +367,62 @@ func setupOpencode(stdout, stderr io.Writer, dryRun, force bool) int {
 	}
 
 	fmt.Fprintf(stdout, "opencode: installed plugin in %s\n", configPath)
+	return exitOK
+}
+
+// setupMuse installs the ai-attn plugin bundle into Muse.
+//
+// Unlike the other agents, Muse's hooks cannot be wired by editing a config
+// file. Hook capabilities are delivered as a plugin: Muse copies the bundle
+// into its own package cache and then requires the capabilities to be trusted
+// before they will run. Setup therefore drives 'muse plugins' rather than
+// writing JSON, and re-runs both steps every time — the trust decision is
+// pinned to a content hash, so an updated bundle needs a fresh approval.
+func setupMuse(stdout, stderr io.Writer, dryRun bool) int {
+	pluginPath := filepath.Join(homeDir(), ".local", "share", "ai-attn", "plugins", "muse")
+
+	if _, err := os.Stat(filepath.Join(pluginPath, ".muse-plugin", "plugin.json")); err != nil {
+		fmt.Fprintf(stderr, "muse: plugin bundle not found at %s\n", pluginPath)
+		fmt.Fprintln(stderr, "  Re-run the installer, or 'make install' from a source checkout.")
+		return exitError
+	}
+
+	museBin, err := exec.LookPath("muse")
+	if err != nil {
+		fmt.Fprintln(stderr, "muse: 'muse' not found in PATH; skipping plugin install")
+		return exitError
+	}
+
+	if dryRun {
+		fmt.Fprintf(stdout, "muse: would install plugin %q from %s (dry-run)\n", musePluginID, pluginPath)
+		return exitOK
+	}
+
+	// Muse gates its plugin subsystem behind an experimental flag. Setting it
+	// here keeps setup working on builds where the feature is off by default;
+	// builds without the gate ignore the variable.
+	env := append(os.Environ(), "MUSE_EXPERIMENTAL_PLUGINS=1")
+
+	steps := [][]string{
+		{"plugins", "install", pluginPath, "--scope", "user"},
+		{"plugins", "approve", musePluginID},
+	}
+	for _, args := range steps {
+		cmd := exec.Command(museBin, args...)
+		cmd.Env = env
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			fmt.Fprintf(stderr, "muse: 'muse %s' failed: %v\n", strings.Join(args, " "), err)
+			if trimmed := strings.TrimSpace(string(out)); trimmed != "" {
+				fmt.Fprintf(stderr, "  %s\n", trimmed)
+			}
+			fmt.Fprintln(stderr, "  If Muse reports that plugins are unavailable in this build, the hook")
+			fmt.Fprintln(stderr, "  path is gated off and ai-attn cannot receive Muse events yet.")
+			return exitError
+		}
+	}
+
+	fmt.Fprintf(stdout, "muse: installed plugin %q from %s\n", musePluginID, pluginPath)
 	return exitOK
 }
 

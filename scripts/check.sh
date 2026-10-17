@@ -26,7 +26,8 @@ bash scripts/test-install.sh
 
 step "shellcheck"
 if command -v shellcheck >/dev/null 2>&1; then
-    shellcheck --source-path=hooks install.sh uninstall.sh hooks/*.sh scripts/*.sh
+    shellcheck --source-path=hooks --source-path=plugins/muse/hooks \
+        install.sh uninstall.sh hooks/*.sh scripts/*.sh plugins/muse/hooks/*.sh
 else
     echo "shellcheck not found locally — skipping (CI will still run it)." >&2
 fi
