@@ -58,7 +58,7 @@ func TestTmuxSocketParsing(t *testing.T) {
 	}{
 		{"unset", "", ""},
 		{"standard", "/tmp/tmux-1000/default,12345,0", "/tmp/tmux-1000/default"},
-		{"named socket", "/home/nick/.tmux-sockets/homelab,999,2", "/home/nick/.tmux-sockets/homelab"},
+		{"named socket", "/home/alice/.tmux-sockets/lab,999,2", "/home/alice/.tmux-sockets/lab"},
 		{"inner tmux", "/tmp/tmux-1000/inner,4845,1780271390-jwu66opc", "/tmp/tmux-1000/inner"},
 		{"pmux backend", "/tmp/tmux-1000/pmux,4845,1780271390-jwu66opc", "/tmp/tmux-1000/pmux"},
 		{"no commas", "/tmp/tmux-1000/odd", "/tmp/tmux-1000/odd"},
