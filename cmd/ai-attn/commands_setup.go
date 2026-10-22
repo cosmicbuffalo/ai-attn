@@ -28,6 +28,17 @@ var claudeHookEvents = []string{
 	"StopFailure",
 }
 
+// claudeSyncHookEvents are the in-turn Claude events whose hooks run
+// synchronously. Claude Code does not wait for async hooks, so a slow async
+// PreToolUse write could land after Stop and leave a finished session stuck
+// at "working". Running these synchronously guarantees each write completes
+// before Claude moves on, so Stop is always the last write of a turn.
+var claudeSyncHookEvents = map[string]bool{
+	"UserPromptSubmit": true,
+	"PreToolUse":       true,
+	"PostToolUse":      true,
+}
+
 var codexHookEvents = []string{
 	"UserPromptSubmit",
 	"PermissionRequest",
@@ -174,14 +185,17 @@ func setupClaude(stdout, stderr io.Writer, dryRun bool) int {
 	}
 
 	for _, event := range claudeHookEvents {
+		hook := map[string]any{
+			"type":    "command",
+			"command": hookCmd,
+			"timeout": 10,
+		}
+		if !claudeSyncHookEvents[event] {
+			hook["async"] = true
+		}
 		matcher := map[string]any{
 			"matcher": "",
-			"hooks": []any{map[string]any{
-				"type":    "command",
-				"command": hookCmd,
-				"timeout": 10,
-				"async":   true,
-			}},
+			"hooks":   []any{hook},
 		}
 		existing, _ := hooks[event].([]any)
 		hooks[event] = append(existing, matcher)

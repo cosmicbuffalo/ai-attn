@@ -906,3 +906,26 @@ func TestSetupMuseReportsGateFailure(t *testing.T) {
 		t.Fatalf("unexpected stderr: %s", stderr)
 	}
 }
+
+// TestSetupClaudeInTurnHooksAreSync verifies that in-turn events install as
+// synchronous hooks so their writes cannot land after Stop, while the rest stay async.
+func TestSetupClaudeInTurnHooksAreSync(t *testing.T) {
+	home := withTempHome(t)
+	os.MkdirAll(filepath.Join(home, ".claude"), 0o755)
+	if rc, _, _ := runCLI(t, "setup", "claude"); rc != exitOK {
+		t.Fatalf("expected exit 0, got %d", rc)
+	}
+
+	settings := readSettings(t, filepath.Join(home, ".claude", "settings.json"))
+	hooks := settings["hooks"].(map[string]any)
+	for _, event := range claudeHookEvents {
+		hookObj := hooks[event].([]any)[0].(map[string]any)["hooks"].([]any)[0].(map[string]any)
+		_, hasAsync := hookObj["async"]
+		if claudeSyncHookEvents[event] && hasAsync {
+			t.Fatalf("expected %s hook to be synchronous, got async=%v", event, hookObj["async"])
+		}
+		if !claudeSyncHookEvents[event] && hookObj["async"] != true {
+			t.Fatalf("expected %s hook to be async", event)
+		}
+	}
+}
