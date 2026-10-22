@@ -206,8 +206,8 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	}
 	hooks := []hookCheck{
 		{"claude.sh", filepath.Join(homeDir(), ".claude"), filepath.Join(homeDir(), ".claude", "settings.json"), "ai-attn/hooks/claude.sh"},
-		{"codex.sh", filepath.Join(homeDir(), ".codex"), filepath.Join(homeDir(), ".codex", "hooks.json"), "ai-attn/hooks/codex.sh"},
-		{"opencode.sh", filepath.Join(homeDir(), ".config", "opencode"), filepath.Join(homeDir(), ".config", "opencode", "opencode.jsonc"), "ai-attn/plugins/opencode"},
+		{"codex.sh", codexHome(), filepath.Join(codexHome(), "hooks.json"), "ai-attn/hooks/codex.sh"},
+		{"opencode.sh", filepath.Join(homeDir(), ".config", "opencode"), opencodeConfigFile(), "ai-attn/plugins/opencode"},
 	}
 	for _, check := range hooks {
 		agent := strings.TrimSuffix(check.script, ".sh")
@@ -241,7 +241,7 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 			}
 			if agent == "codex" && legacyCodexNotifyConfigured(check.searchStr) {
 				fmt.Fprintf(stdout, "hook_%s=legacy_notify (legacy ai-attn notify is present in %s; run 'ai-attn setup codex' to install current Codex hooks)\n",
-					agent, filepath.Join(homeDir(), ".codex", "config.toml"))
+					agent, filepath.Join(codexHome(), "config.toml"))
 				allPassed = false
 				continue
 			}
@@ -250,20 +250,31 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 			continue
 		}
 		if strings.Contains(string(configData), check.searchStr) {
-			fmt.Fprintf(stdout, "hook_%s=installed\n", agent)
+			if !reportWiredHook(stdout, agent, check.configFile, configData, check.searchStr, "") {
+				allPassed = false
+			}
 			continue
 		}
 		if wrapper := findWrapperReferencingCanonical(configData, check.searchStr); wrapper != "" {
-			fmt.Fprintf(stdout, "hook_%s=installed (via wrapper at %s)\n", agent, wrapper)
+			if !reportWiredHook(stdout, agent, check.configFile, configData, check.searchStr, wrapper) {
+				allPassed = false
+			}
 			continue
 		}
 		if agent == "codex" && legacyCodexNotifyConfigured(check.searchStr) {
 			fmt.Fprintf(stdout, "hook_%s=legacy_notify (legacy ai-attn notify is present in %s; run 'ai-attn setup codex' to install current Codex hooks)\n",
-				agent, filepath.Join(homeDir(), ".codex", "config.toml"))
+				agent, filepath.Join(codexHome(), "config.toml"))
 			allPassed = false
 			continue
 		}
 		fmt.Fprintf(stdout, "hook_%s=not_wired (script exists but not referenced in %s) — run 'ai-attn setup' to fix\n", agent, check.configFile)
+		allPassed = false
+	}
+
+	if !checkMuse(stdout) {
+		allPassed = false
+	}
+	if !checkClaudeConfigDir(stdout) {
 		allPassed = false
 	}
 
@@ -300,7 +311,7 @@ func findWrapperReferencingCanonical(configData []byte, searchStr string) string
 }
 
 func legacyCodexNotifyConfigured(searchStr string) bool {
-	data, err := os.ReadFile(filepath.Join(homeDir(), ".codex", "config.toml"))
+	data, err := os.ReadFile(filepath.Join(codexHome(), "config.toml"))
 	if err != nil {
 		return false
 	}
