@@ -48,7 +48,7 @@ Wire ai-attn hooks into `~/.claude/settings.json` so that attention signals are 
 
 3. For each of the following ten hook events, add the ai-attn command entry. If the event key already exists with other hook entries, **append** the ai-attn entry to the existing array — do not replace existing hooks. If an entry with the same command already exists for that event, skip it (do not duplicate).
 
-   Each entry uses the nested matcher format with `async: true` and `timeout: 10`:
+   Each entry uses the nested matcher format with `timeout: 10`. `UserPromptSubmit`, `PreToolUse`, and `PostToolUse` run synchronously (no `async` key) so their state writes always finish before `Stop`; an async tool-use write can land after `Stop` and leave a finished session stuck at "working". Every other event uses `async: true`:
 
    ```json
    {
@@ -66,7 +66,7 @@ Wire ai-attn hooks into `~/.claude/settings.json` so that attention signals are 
          { "matcher": "", "hooks": [{ "type": "command", "command": "bash ~/.local/share/ai-attn/hooks/claude.sh", "timeout": 10, "async": true }] }
        ],
        "UserPromptSubmit": [
-         { "matcher": "", "hooks": [{ "type": "command", "command": "bash ~/.local/share/ai-attn/hooks/claude.sh", "timeout": 10, "async": true }] }
+         { "matcher": "", "hooks": [{ "type": "command", "command": "bash ~/.local/share/ai-attn/hooks/claude.sh", "timeout": 10 }] }
        ],
        "ElicitationResult": [
          { "matcher": "", "hooks": [{ "type": "command", "command": "bash ~/.local/share/ai-attn/hooks/claude.sh", "timeout": 10, "async": true }] }
@@ -75,10 +75,10 @@ Wire ai-attn hooks into `~/.claude/settings.json` so that attention signals are 
          { "matcher": "", "hooks": [{ "type": "command", "command": "bash ~/.local/share/ai-attn/hooks/claude.sh", "timeout": 10, "async": true }] }
        ],
        "PreToolUse": [
-         { "matcher": "", "hooks": [{ "type": "command", "command": "bash ~/.local/share/ai-attn/hooks/claude.sh", "timeout": 10, "async": true }] }
+         { "matcher": "", "hooks": [{ "type": "command", "command": "bash ~/.local/share/ai-attn/hooks/claude.sh", "timeout": 10 }] }
        ],
        "PostToolUse": [
-         { "matcher": "", "hooks": [{ "type": "command", "command": "bash ~/.local/share/ai-attn/hooks/claude.sh", "timeout": 10, "async": true }] }
+         { "matcher": "", "hooks": [{ "type": "command", "command": "bash ~/.local/share/ai-attn/hooks/claude.sh", "timeout": 10 }] }
        ],
        "StopFailure": [
          { "matcher": "", "hooks": [{ "type": "command", "command": "bash ~/.local/share/ai-attn/hooks/claude.sh", "timeout": 10, "async": true }] }

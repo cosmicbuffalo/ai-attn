@@ -381,12 +381,39 @@ func writeHookState(state string, agent, sessionID, cwd, reason string, stderr i
 		Socket:    tmuxSocket(),
 	}
 
+	if isLateToolUseWrite(identity, reason) {
+		return exitOK
+	}
+
 	if _, err := writeStateRecord(identity, state, reason); err != nil {
 		fmt.Fprintf(stderr, "ai-attn: failed to write state record: %v\n", err)
 		return exitError
 	}
 
 	return exitOK
+}
+
+// isLateToolUseWrite reports whether a Claude or Muse tool-use write would
+// overwrite a record that already marks the turn as over.
+//
+// Tool-use hooks only fire inside a turn, and every new turn opens with
+// UserPromptSubmit, so a PreToolUse/PostToolUse write landing on a turn-end
+// record is a stale write from a hook that ran slower than Stop (e.g. an async
+// hook). Applying it would leave a finished session stuck at "working" with no
+// later event to correct it, so it is dropped instead.
+func isLateToolUseWrite(identity sessionIdentity, reason string) bool {
+	if identity.Agent != "claude" && identity.Agent != "muse" {
+		return false
+	}
+	if reason != "PreToolUse" && reason != "PostToolUse" {
+		return false
+	}
+	key := sessionKey(identity.Agent, identity.SessionID, identity.PaneID, identity.Socket)
+	existing, err := readRecord(stateFile(key))
+	if err != nil {
+		return false
+	}
+	return existing.Reason == "agent-turn-complete" || existing.Reason == "StopFailure"
 }
 
 // stringFromMap extracts a trimmed string value from a map, returning "" if absent or non-string.

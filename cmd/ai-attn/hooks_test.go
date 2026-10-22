@@ -853,3 +853,37 @@ func TestMatchMuseEvent(t *testing.T) {
 		}
 	}
 }
+
+// TestHookClaudeLateToolUseAfterStopIsIgnored verifies that a tool-use write
+// arriving after Stop (a slow async hook) does not flip the session back to working.
+func TestHookClaudeLateToolUseAfterStopIsIgnored(t *testing.T) {
+	withTempHome(t)
+	for _, event := range []string{"UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "PreToolUse", "PostToolUse"} {
+		var stdout, stderr bytes.Buffer
+		payload := `{"hook_event_name":"` + event + `","session_id":"late-1","cwd":"/work"}`
+		if rc := run([]string{"hook", "--agent", "claude"}, strings.NewReader(payload), &stdout, &stderr); rc != exitOK {
+			t.Fatalf("hook %s rc=%d stderr=%s", event, rc, stderr.String())
+		}
+	}
+	rc, statusOut, _ := runCLI(t, "status", "--agent", "claude", "--session-id", "late-1")
+	if rc != exitOK || !strings.Contains(statusOut, "state=done") {
+		t.Fatalf("expected done after late tool-use writes: rc=%d out=%s", rc, statusOut)
+	}
+}
+
+// TestHookClaudeNewTurnAfterStopSetsWorking verifies that UserPromptSubmit
+// reopens a finished session, after which tool-use writes apply again.
+func TestHookClaudeNewTurnAfterStopSetsWorking(t *testing.T) {
+	withTempHome(t)
+	for _, event := range []string{"Stop", "UserPromptSubmit", "Notification", "PreToolUse"} {
+		var stdout, stderr bytes.Buffer
+		payload := `{"hook_event_name":"` + event + `","notification_type":"permission_prompt","session_id":"turn-2","cwd":"/work"}`
+		if rc := run([]string{"hook", "--agent", "claude"}, strings.NewReader(payload), &stdout, &stderr); rc != exitOK {
+			t.Fatalf("hook %s rc=%d stderr=%s", event, rc, stderr.String())
+		}
+	}
+	rc, statusOut, _ := runCLI(t, "status", "--agent", "claude", "--session-id", "turn-2")
+	if rc != exitOK || !strings.Contains(statusOut, "state=working") || !strings.Contains(statusOut, "PreToolUse") {
+		t.Fatalf("expected working from PreToolUse in new turn: rc=%d out=%s", rc, statusOut)
+	}
+}

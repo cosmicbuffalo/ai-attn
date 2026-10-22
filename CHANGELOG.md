@@ -22,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A finished Claude session could stay stuck at "working" indefinitely.
+  Claude Code does not wait for async hooks, so a slow async `PreToolUse`
+  write could land after `Stop` and overwrite `done`, with no later event to
+  correct it. `ai-attn setup claude` now installs the `UserPromptSubmit`,
+  `PreToolUse`, and `PostToolUse` hooks as synchronous so their writes
+  always finish before `Stop`. As a backstop, Claude and Muse tool-use
+  writes that land on a record already marking the turn as over are
+  dropped. Re-run `ai-attn setup claude` to update existing installs.
 - `make install` now installs the bundled OpenCode plugin files.
   `ai-attn setup opencode` has always pointed OpenCode at
   `~/.local/share/ai-attn/plugins/opencode`, but only `install.sh` populated
