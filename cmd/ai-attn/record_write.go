@@ -87,7 +87,7 @@ func readRecord(path string) (Record, error) {
 // wins. Mid-turn that only causes a momentary flicker, because a later event
 // overwrites it. A stale write landing after the turn's final event is not
 // harmless — nothing follows to correct it — so callers guard that case (see
-// isLateToolUseWrite) and setup installs the in-turn Claude hooks as
+// isLateInTurnWrite) and setup installs the in-turn Claude hooks as
 // synchronous.
 func writeStateRecord(identity sessionIdentity, state, reason string) (Record, error) {
 	key := sessionKey(identity.Agent, identity.SessionID, identity.PaneID, identity.Socket)
