@@ -191,15 +191,16 @@ func hookOpencode(hookPayload string, stderr io.Writer) int {
 		return exitOK
 	}
 
-	sessionID := ""
-	if props, ok := payload["properties"].(map[string]any); ok {
-		sessionID = stringFromMap(props, "sessionID")
-	}
-	if sessionID == "" {
-		sessionID = stringFromMap(payload, "sessionID")
-	}
+	sessionID := opencodeSessionID(payload)
 
 	cwd, _ := os.Getwd()
+
+	if eventType == "session.deleted" {
+		if sessionID != "" {
+			removeSessionRecord("opencode", sessionID, stderr)
+		}
+		return exitOK
+	}
 
 	state, reason, ok := matchOpencodeEvent(eventType, payload)
 	if !ok {
@@ -218,7 +219,52 @@ func hookOpencode(hookPayload string, stderr io.Writer) int {
 	return writeHookState(state, "opencode", sessionID, cwd, reason, stderr)
 }
 
+// opencodeSessionID finds the session an OpenCode event belongs to. Current
+// releases put it at properties.sessionID on every session, message, and
+// permission event; older ones nested it in the message part or the session
+// info, so those places are checked too.
+func opencodeSessionID(payload map[string]any) string {
+	props, _ := payload["properties"].(map[string]any)
+	if id := stringFromMap(props, "sessionID"); id != "" {
+		return id
+	}
+	if part, ok := props["part"].(map[string]any); ok {
+		if id := stringFromMap(part, "sessionID"); id != "" {
+			return id
+		}
+	}
+	if info, ok := props["info"].(map[string]any); ok {
+		if id := stringFromMap(info, "id"); id != "" {
+			return id
+		}
+	}
+	return stringFromMap(payload, "sessionID")
+}
+
+// removeSessionRecord deletes a session's state record when the session ends.
+func removeSessionRecord(agent, sessionID string, stderr io.Writer) {
+	identity := sessionIdentity{
+		Agent:     agent,
+		SessionID: sessionID,
+		PaneID:    os.Getenv("TMUX_PANE"),
+		Socket:    tmuxSocket(),
+	}
+	key := sessionKey(identity.Agent, identity.SessionID, identity.PaneID, identity.Socket)
+	if err := os.Remove(stateFile(key)); err != nil && !os.IsNotExist(err) {
+		fmt.Fprintf(stderr, "ai-attn: warning: failed to remove state file: %v\n", err)
+	}
+	if err := removeCompatibleLegacyRecord(identity, key); err != nil {
+		fmt.Fprintf(stderr, "ai-attn: warning: failed to remove legacy state file: %v\n", err)
+	}
+}
+
 // matchOpencodeEvent maps an OpenCode event type to an ai-attn state and reason.
+//
+// file.edited is not mapped: it carries no session ID, so its writes landed
+// on a separate pane-keyed record that no later event ever finished.
+// message.part.updated already covers tool activity. session.created is not
+// mapped either; opening a session is not work, and the first prompt sets
+// working through session.status.
 func matchOpencodeEvent(eventType string, raw map[string]any) (state, reason string, ok bool) {
 	switch eventType {
 	case "session.status":
@@ -243,20 +289,15 @@ func matchOpencodeEvent(eventType string, raw map[string]any) (state, reason str
 	case "session.error":
 		return "stopped", "session.error", true
 
-	case "permission.updated":
+	case "permission.asked":
+		return "waiting", "permission.asked", true
+	case "permission.updated": // the name before permission.asked
 		return "waiting", "permission.updated", true
 	case "permission.replied":
 		return "working", "permission.replied", true
 
 	case "message.part.updated":
 		return "working", "message.part.updated", true
-	case "file.edited":
-		return "working", "file.edited", true
-
-	case "session.created":
-		return "working", "session.created", true
-	case "session.deleted":
-		return "done", "session.deleted", true
 	}
 
 	return "", "", false
@@ -381,7 +422,7 @@ func writeHookState(state string, agent, sessionID, cwd, reason string, stderr i
 		Socket:    tmuxSocket(),
 	}
 
-	if isLateToolUseWrite(identity, reason) {
+	if isLateInTurnWrite(identity, reason) {
 		return exitOK
 	}
 
@@ -393,19 +434,31 @@ func writeHookState(state string, agent, sessionID, cwd, reason string, stderr i
 	return exitOK
 }
 
-// isLateToolUseWrite reports whether a Claude or Muse tool-use write would
+// isLateInTurnWrite reports whether an in-turn "working" write would
 // overwrite a record that already marks the turn as over.
 //
-// Tool-use hooks only fire inside a turn, and every new turn opens with
-// UserPromptSubmit, so a PreToolUse/PostToolUse write landing on a turn-end
-// record is a stale write from a hook that ran slower than Stop (e.g. an async
-// hook). Applying it would leave a finished session stuck at "working" with no
-// later event to correct it, so it is dropped instead.
-func isLateToolUseWrite(identity sessionIdentity, reason string) bool {
-	if identity.Agent != "claude" && identity.Agent != "muse" {
-		return false
-	}
-	if reason != "PreToolUse" && reason != "PostToolUse" {
+// Claude and Muse tool-use hooks only fire inside a turn, and every new turn
+// opens with UserPromptSubmit. OpenCode's message.part.updated likewise only
+// fires inside a turn, which opens with session.status busy. A write of that
+// kind landing on a turn-end record is a stale write from a hook that ran
+// slower than the turn's end (OpenCode does not await its plugin event
+// handlers, so their hook processes can finish out of order). Applying it
+// would leave a finished session stuck at "working" with no later event to
+// correct it, so it is dropped instead.
+func isLateInTurnWrite(identity sessionIdentity, reason string) bool {
+	var turnEnded func(reason string) bool
+	switch identity.Agent {
+	case "claude", "muse":
+		if reason != "PreToolUse" && reason != "PostToolUse" {
+			return false
+		}
+		turnEnded = func(r string) bool { return r == "agent-turn-complete" || r == "StopFailure" }
+	case "opencode":
+		if reason != "message.part.updated" {
+			return false
+		}
+		turnEnded = func(r string) bool { return r == "session.status.idle" || r == "session.idle" || r == "session.error" }
+	default:
 		return false
 	}
 	key := sessionKey(identity.Agent, identity.SessionID, identity.PaneID, identity.Socket)
@@ -413,7 +466,7 @@ func isLateToolUseWrite(identity sessionIdentity, reason string) bool {
 	if err != nil {
 		return false
 	}
-	return existing.Reason == "agent-turn-complete" || existing.Reason == "StopFailure"
+	return turnEnded(existing.Reason)
 }
 
 // stringFromMap extracts a trimmed string value from a map, returning "" if absent or non-string.
