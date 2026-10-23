@@ -38,6 +38,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - A deleted OpenCode session's record is removed instead of left at
   `done`, and opening a session (`session.created`) no longer shows as
   working before the first prompt.
+- Muse's `UserPromptSubmit` and `PostToolUse` hooks now run synchronously,
+  as Claude's do, so their writes finish before `Stop`. Re-run
+  `ai-attn setup muse` to install the updated plugin.
+- A Muse notification only means waiting when it is a permission or
+  elicitation dialog. Other notification types, such as an idle reminder,
+  no longer turn a finished turn into "waiting".
 - A finished Claude session could stay stuck at "working" indefinitely.
   Claude Code does not wait for async hooks, so a slow async `PreToolUse`
   write could land after `Stop` and overwrite `done`, with no later event to
