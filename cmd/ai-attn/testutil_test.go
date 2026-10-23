@@ -23,6 +23,13 @@ func withTempHome(t *testing.T) string {
 	t.Setenv("TMUX", "")
 	t.Setenv("AI_ATTN_CONFIG", "")
 	t.Setenv("AI_ATTN_STATE_DIR", "")
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	t.Setenv("CODEX_HOME", "")
+	// Doctor probes must not see the Codex or Muse installed on this machine.
+	prevCodexVersion, prevMuseInspect := codexVersion, museInspect
+	codexVersion = func() string { return "" }
+	museInspect = func() ([]byte, bool, error) { return nil, false, nil }
+	t.Cleanup(func() { codexVersion, museInspect = prevCodexVersion, prevMuseInspect })
 	if modCache != "" {
 		t.Setenv("GOMODCACHE", modCache)
 	}
