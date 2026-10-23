@@ -24,6 +24,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- OpenCode permission prompts never showed as waiting on current releases,
+  which renamed `permission.updated` to `permission.asked`. Both names are
+  now handled.
+- OpenCode hook writes could land out of order, because OpenCode does not
+  wait for plugin event handlers, so a late `message.part.updated` could
+  replace `done` after the turn ended. The plugin now runs its hook calls
+  one at a time in arrival order, and a `message.part.updated` write that
+  lands after the turn's idle is dropped.
+- OpenCode's `file.edited` carries no session ID, so each one wrote a
+  separate pane-keyed record that stayed at "working". It is no longer
+  tracked; `message.part.updated` already covers that activity.
+- `message.part.updated` is reported at most once a second per session
+  instead of starting a hook process for every part change.
+- A deleted OpenCode session's record is removed instead of left at
+  `done`, and opening a session (`session.created`) no longer shows as
+  working before the first prompt.
 - A finished Claude session could stay stuck at "working" indefinitely.
   Claude Code does not wait for async hooks, so a slow async `PreToolUse`
   write could land after `Stop` and overwrite `done`, with no later event to
