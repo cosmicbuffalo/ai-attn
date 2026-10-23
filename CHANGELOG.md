@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-23
+
 ### Added
 
 - Support Muse as a fourth agent. `ai-attn hook --agent muse` parses Muse's
@@ -52,6 +54,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   always finish before `Stop`. As a backstop, Claude and Muse tool-use
   writes that land on a record already marking the turn as over are
   dropped. Re-run `ai-attn setup claude` to update existing installs.
+- `ai-attn doctor` could report "All checks passed" while no signals were
+  arriving. It now checks that Codex has trusted ai-attn's hooks (Codex
+  0.163+ skips untrusted hooks), that the OpenCode plugin is in the `plugin`
+  list rather than commented out, that Muse's ai-attn hooks are enabled and
+  trusted, and that a `CLAUDE_CONFIG_DIR` other than `~/.claude` also
+  carries the hooks.
 - `make install` now installs the bundled OpenCode plugin files.
   `ai-attn setup opencode` has always pointed OpenCode at
   `~/.local/share/ai-attn/plugins/opencode`, but only `install.sh` populated
@@ -150,6 +158,7 @@ Initial public release.
 - CI pipeline with formatting, linting, and test checks
 - Automated multi-platform release builds via GitHub Actions
 
+[0.4.0]: https://github.com/cosmicbuffalo/ai-attn/releases/tag/v0.4.0
 [0.3.3]: https://github.com/cosmicbuffalo/ai-attn/releases/tag/v0.3.3
 [0.3.2]: https://github.com/cosmicbuffalo/ai-attn/releases/tag/v0.3.2
 [0.3.1]: https://github.com/cosmicbuffalo/ai-attn/releases/tag/v0.3.1
