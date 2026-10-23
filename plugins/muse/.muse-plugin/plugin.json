@@ -16,8 +16,7 @@
         "id": "user-prompt-submit",
         "event": "UserPromptSubmit",
         "command": ["sh", "hooks/user_prompt_submit.sh"],
-        "timeoutMs": 5000,
-        "async": true
+        "timeoutMs": 5000
       },
       {
         "id": "permission-request",
@@ -37,8 +36,7 @@
         "id": "post-tool-use",
         "event": "PostToolUse",
         "command": ["sh", "hooks/post_tool_use.sh"],
-        "timeoutMs": 5000,
-        "async": true
+        "timeoutMs": 5000
       },
       {
         "id": "post-tool-use-failure",

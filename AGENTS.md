@@ -283,7 +283,7 @@ The plugin's hooks pipe Muse's event payload to `ai-attn hook --agent muse`. Mus
 | `UserPromptSubmit`   | working       | User submitted a prompt          |
 | `PostToolUse`        | working       | Agent is running tools           |
 | `PermissionRequest`  | waiting       | Agent needs permission           |
-| `Notification`       | waiting       | Agent is blocked on a human      |
+| `Notification`       | waiting       | Permission or elicitation dialog; other notification types (an idle reminder) are ignored. A payload without `notification_type` counts as waiting |
 | `Stop`               | done          | Agent turn complete              |
 | `PostToolUseFailure` | stopped       | A tool call failed               |
 | `StopFailure`        | stopped       | The turn ended in failure        |
@@ -295,6 +295,8 @@ Two constraints shape the bundle:
 - **No tmux environment.** Muse runs hooks with a scrubbed environment — only `HOME`, `LANG`, `LOGNAME`, `PATH`, `PWD`, `SHELL`, `SHLVL`, `TERM`, `USER` and the plugin's own `MUSE_PLUGIN_*`/`CLAUDE_PLUGIN_*` variables survive. `TMUX` and `TMUX_PANE` do not, so Muse records carry no `pane_id` and no `socket`. This is expected: consumers route them by agent and cwd instead. In pmux this is the same path already used for detached Claude agents, so a Muse session is claimed correctly as long as no two pmux sessions run Muse in the same directory.
 
 `PreToolUse` is deliberately not wired. `PostToolUse` already provides the working heartbeat, and hooking both would double the process spawns per tool call for no extra signal.
+
+As with Claude, `UserPromptSubmit` and `PostToolUse` run synchronously (no `async` key) so their writes finish before `Stop`; every other hook is async. A tool-use write that still lands after `Stop` is dropped.
 
 ## Post-Setup Verification
 
