@@ -352,6 +352,19 @@ func hookMuse(hookPayload string, stderr io.Writer) int {
 	if !ok {
 		return exitOK
 	}
+	if event == "Notification" {
+		// Claude-shaped payloads name the notification kind. Only permission
+		// and elicitation dialogs block on the human; an idle reminder or an
+		// auth notice must not turn a finished turn into "waiting". A payload
+		// without the field keeps the plain notification mapping.
+		switch kind := stringFromMap(payload, "notification_type"); kind {
+		case "":
+		case "permission_prompt", "elicitation_dialog":
+			reason = kind
+		default:
+			return exitOK
+		}
+	}
 
 	return writeHookState(state, "muse", sessionID, cwd, reason, stderr)
 }
@@ -366,6 +379,10 @@ func hookMuse(hookPayload string, stderr io.Writer) int {
 // PreToolUse is intentionally not wired in the plugin manifest: PostToolUse
 // already provides the working heartbeat, and hooking both would double the
 // process spawns per tool call for no additional signal.
+//
+// As with Claude, the in-turn hooks (UserPromptSubmit, PostToolUse) are
+// synchronous in the manifest so their writes finish before Stop; the rest
+// stay async. isLateToolUseWrite is the backstop if one still lands late.
 func matchMuseEvent(event string) (state, reason string, ok bool) {
 	switch event {
 	case "UserPromptSubmit", "PreToolUse", "PostToolUse":
