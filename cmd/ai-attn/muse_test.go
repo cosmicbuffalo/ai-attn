@@ -17,6 +17,7 @@ func TestHookMuseNotificationTypes(t *testing.T) {
 		state string
 	}{
 		{"permission_prompt", "state=waiting"},
+		{"question_prompt", "state=waiting"},
 		{"elicitation_dialog", "state=waiting"},
 		{"idle_prompt", ""},
 		{"auth_success", ""},
@@ -95,5 +96,49 @@ func TestMusePluginInTurnHooksAreSync(t *testing.T) {
 		if !seen[event] {
 			t.Fatalf("manifest does not wire %s", event)
 		}
+	}
+}
+
+func museHook(t *testing.T, payload string) {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	if rc := run([]string{"hook", "--agent", "muse"}, strings.NewReader(payload), &stdout, &stderr); rc != exitOK {
+		t.Fatalf("hook rc=%d stderr=%s", rc, stderr.String())
+	}
+}
+
+// TestHookMuseIgnoresBackgroundSessionToolUse verifies the tool hooks of
+// Muse's background reminder sessions, which run under their own session ID
+// during and after a turn and never stop, write no record. The payloads are
+// shaped like ones captured from Muse 1.4.12.
+func TestHookMuseIgnoresBackgroundSessionToolUse(t *testing.T) {
+	home := withTempHome(t)
+	museHook(t, `{"hook_event_name":"UserPromptSubmit","session_id":"main","turn_id":"turn-1","cwd":"/work"}`)
+	museHook(t, `{"hook_event_name":"PostToolUse","session_id":"reminder-1","turn_id":"reminder-1","tool_name":"submit_reminder_decision","cwd":"/work"}`)
+	museHook(t, `{"hook_event_name":"Stop","session_id":"main","turn_id":"turn-1","cwd":"/work"}`)
+	museHook(t, `{"hook_event_name":"PostToolUse","session_id":"reminder-2","turn_id":"reminder-2","tool_name":"submit_reminder_decision","post_stop":true,"cwd":"/work"}`)
+
+	entries, _ := os.ReadDir(filepath.Join(home, ".local", "state", "ai-attn"))
+	for _, e := range entries {
+		data, _ := os.ReadFile(filepath.Join(home, ".local", "state", "ai-attn", e.Name()))
+		if strings.Contains(string(data), "reminder-") {
+			t.Fatalf("a background session wrote a record: %s", data)
+		}
+	}
+	if _, out, _ := runCLI(t, "status", "--agent", "muse", "--session-id", "main"); !strings.Contains(out, "state=done") {
+		t.Fatalf("the user's session should be done, got %s", out)
+	}
+}
+
+// TestHookMuseToolUseAfterPromptSetsWorking verifies the user's own session
+// still reports tool activity once its prompt opened the turn.
+func TestHookMuseToolUseAfterPromptSetsWorking(t *testing.T) {
+	withTempHome(t)
+	museHook(t, `{"hook_event_name":"UserPromptSubmit","session_id":"main","turn_id":"turn-1","cwd":"/work"}`)
+	museHook(t, `{"hook_event_name":"PermissionRequest","session_id":"main","turn_id":"turn-1","cwd":"/work"}`)
+	museHook(t, `{"hook_event_name":"PostToolUse","session_id":"main","turn_id":"turn-1","tool_name":"bash","cwd":"/work"}`)
+	_, out, _ := runCLI(t, "status", "--agent", "muse", "--session-id", "main")
+	if !strings.Contains(out, "state=working") || !strings.Contains(out, "PostToolUse") {
+		t.Fatalf("expected working from the tool use, got %s", out)
 	}
 }

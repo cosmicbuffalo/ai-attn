@@ -353,20 +353,50 @@ func hookMuse(hookPayload string, stderr io.Writer) int {
 		return exitOK
 	}
 	if event == "Notification" {
-		// Claude-shaped payloads name the notification kind. Only permission
-		// and elicitation dialogs block on the human; an idle reminder or an
-		// auth notice must not turn a finished turn into "waiting". A payload
-		// without the field keeps the plain notification mapping.
+		// Claude-shaped payloads name the notification kind. Muse sends
+		// permission_prompt for an approval and question_prompt when it asks
+		// the user a question; both block on the human. elicitation_dialog is
+		// Claude's name for the latter. Any other kind (an idle reminder, an
+		// auth notice) must not turn a finished turn into "waiting". A
+		// payload without the field keeps the plain notification mapping.
 		switch kind := stringFromMap(payload, "notification_type"); kind {
 		case "":
-		case "permission_prompt", "elicitation_dialog":
+		case "permission_prompt", "question_prompt", "elicitation_dialog":
 			reason = kind
 		default:
 			return exitOK
 		}
 	}
+	if isMuseBackgroundToolEvent(event, sessionID, payload) {
+		return exitOK
+	}
 
 	return writeHookState(state, "muse", sessionID, cwd, reason, stderr)
+}
+
+// isMuseBackgroundToolEvent reports whether a Muse tool event comes from one
+// of Muse's background child sessions rather than the user's session.
+//
+// Muse runs short-lived reminder sessions alongside each turn and after it
+// ends, and their tool calls fire the plugin's tool hooks under their own
+// session_id. Those sessions never submit a prompt or stop, so a record
+// opened for one stays at "working" until it expires, and pmux routes Muse
+// records by agent and cwd, so it shows the user's finished session as
+// working. The ones that run after the turn are flagged post_stop. The rest
+// are recognised by having no record: every turn of a real session opens
+// with UserPromptSubmit, which writes one before any tool runs.
+func isMuseBackgroundToolEvent(event, sessionID string, payload map[string]any) bool {
+	switch event {
+	case "PreToolUse", "PostToolUse", "PostToolUseFailure":
+	default:
+		return false
+	}
+	if postStop, _ := payload["post_stop"].(bool); postStop {
+		return true
+	}
+	key := sessionKey("muse", sessionID, os.Getenv("TMUX_PANE"), tmuxSocket())
+	_, err := readRecord(stateFile(key))
+	return err != nil
 }
 
 // matchMuseEvent maps a Muse hook event to an ai-attn state and reason.
@@ -382,7 +412,7 @@ func hookMuse(hookPayload string, stderr io.Writer) int {
 //
 // As with Claude, the in-turn hooks (UserPromptSubmit, PostToolUse) are
 // synchronous in the manifest so their writes finish before Stop; the rest
-// stay async. isLateToolUseWrite is the backstop if one still lands late.
+// stay async. isLateInTurnWrite is the backstop if one still lands late.
 func matchMuseEvent(event string) (state, reason string, ok bool) {
 	switch event {
 	case "UserPromptSubmit", "PreToolUse", "PostToolUse":
