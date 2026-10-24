@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A finished Muse session could show as "working" until its record expired.
+  Muse runs short-lived background reminder sessions during and after each
+  turn, and their tool hooks opened records under their own session IDs
+  that nothing ever finished. pmux routes Muse records by agent and cwd, so
+  it showed the user's session as working. Tool events from those sessions
+  are now ignored.
+- A Muse question to the user (`question_prompt`) now shows as waiting.
+  0.4.0 only counted permission prompts.
+- OpenCode's last events of a turn were often lost when OpenCode exited, so
+  `opencode run` sessions could stay at "working" and quitting mid-turn
+  left them at "stopped". The plugin now lets queued reports finish before
+  OpenCode exits, and kills a hook call that hangs.
+- OpenCode's question tool now shows as waiting while it blocks on the
+  user, and a `session.error` from outside any session (a plugin or skill
+  that fails to load) no longer leaves a record that nothing clears.
+- `ai-attn doctor` no longer lets the Muse launcher update Muse, and stops
+  waiting for `muse` or `codex` at its 10-second timeout even when they leave
+  a child process running.
+- `ai-attn doctor` says when it could not check Codex hook trust because
+  `codex` is not on PATH, instead of reporting a plain `installed`.
+- `ai-attn doctor` again accepts an OpenCode plugin entry that wraps
+  ai-attn's plugin, as long as the wrapper is in the "plugin" list.
+
 ## [0.4.0] - 2026-10-23
 
 ### Added
