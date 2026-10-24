@@ -8,6 +8,9 @@ const TRACKED_EVENTS = new Set([
   "permission.asked",
   "permission.updated",
   "permission.replied",
+  "question.asked",
+  "question.replied",
+  "question.rejected",
   "message.part.updated",
 ]);
 
@@ -16,6 +19,17 @@ const TRACKED_EVENTS = new Set([
 // skipped instead of starting a process each.
 const HEARTBEAT_EVENT = "message.part.updated";
 const HEARTBEAT_INTERVAL_MS = 1000;
+
+// A hook that hangs is killed after this long, so it cannot hold up the
+// queue (and every report behind it) for the rest of the process.
+const HOOK_TIMEOUT_MS = 5000;
+
+// How long OpenCode's exit waits for queued reports. The turn's final idle
+// is usually still queued when OpenCode disposes the plugin, a few
+// milliseconds after it; dropping it would leave the session at "working".
+const DRAIN_TIMEOUT_MS = 1500;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const sessionOf = (event) =>
   event.properties?.sessionID ?? event.properties?.part?.sessionID ?? "";
@@ -29,7 +43,9 @@ const report = async (event) => {
     });
     proc.stdin.write(JSON.stringify(event));
     proc.stdin.end();
+    const timer = setTimeout(() => proc.kill(), HOOK_TIMEOUT_MS);
     await proc.exited;
+    clearTimeout(timer);
   } catch {
     // Best-effort — don't crash the plugin on hook failures.
   }
@@ -61,6 +77,9 @@ const server = async (_ctx) => {
       queue = queue.then(() => report(event));
       await queue;
     },
+    // OpenCode awaits dispose before exiting, so reports still queued then
+    // (often the turn's idle) get to run.
+    dispose: () => Promise.race([queue, sleep(DRAIN_TIMEOUT_MS)]),
   };
 };
 

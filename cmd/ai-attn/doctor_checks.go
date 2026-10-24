@@ -29,16 +29,36 @@ var (
 	museInspect = defaultMuseInspect
 )
 
-const probeTimeout = 10 * time.Second
+var probeTimeout = 10 * time.Second
+
+// probeWaitDelay bounds how long a probe's output is waited for once its
+// command is killed. Killing a launcher script does not kill what it
+// started, and a grandchild still holding stdout would otherwise keep
+// doctor waiting long past probeTimeout.
+var probeWaitDelay = 2 * time.Second
+
+// runProbe runs a doctor probe command with probeTimeout and returns its
+// stdout. A probe that runs out of time reports that, rather than the
+// "signal: killed" its exit status would give.
+func runProbe(env []string, bin string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Env = env
+	cmd.WaitDelay = probeWaitDelay
+	out, err := cmd.Output()
+	if ctx.Err() != nil {
+		return out, fmt.Errorf("%s did not answer within %s", filepath.Base(bin), probeTimeout)
+	}
+	return out, err
+}
 
 func defaultCodexVersion() string {
 	bin, err := exec.LookPath("codex")
 	if err != nil {
 		return ""
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, bin, "--version").Output()
+	out, err := runProbe(nil, bin, "--version")
 	if err != nil {
 		return ""
 	}
@@ -50,11 +70,10 @@ func defaultMuseInspect() (out []byte, found bool, err error) {
 	if lookErr != nil {
 		return nil, false, nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "plugins", "inspect", musePluginID, "--json")
-	cmd.Env = append(os.Environ(), "MUSE_EXPERIMENTAL_PLUGINS=1")
-	out, err = cmd.Output()
+	// The muse launcher checks for and installs updates on its own; doctor
+	// only reads, so it must not trigger one.
+	env := append(os.Environ(), "MUSE_EXPERIMENTAL_PLUGINS=1", "MUSE_NO_AUTO_UPDATE=1")
+	out, err = runProbe(env, bin, "plugins", "inspect", musePluginID, "--json")
 	return out, true, err
 }
 
@@ -91,12 +110,16 @@ func reportWiredHook(stdout io.Writer, agent, configFile string, configData []by
 	}
 	switch agent {
 	case "opencode":
-		if !opencodePluginEnabled(configData, searchStr) {
+		enabled := opencodePluginEnabled(configData, searchStr)
+		if via != "" {
+			enabled = opencodeWrapperEnabled(configData, via)
+		}
+		if !enabled {
 			fmt.Fprintf(stdout, "hook_%s=not_wired (the ai-attn plugin entry in %s is commented out or outside the \"plugin\" list, so OpenCode never loads it) — add it to \"plugin\" (see AGENTS.md)\n", agent, configFile)
 			return false
 		}
 	case "codex":
-		missing, total, required, err := codexUntrustedHooks(configFile, configData, via)
+		missing, total, required, versionKnown, err := codexUntrustedHooks(configFile, configData, via)
 		if err != nil {
 			fmt.Fprintf(stdout, "hook_%s=config_error (could not check Codex hook trust: %s)\n", agent, err)
 			return false
@@ -111,6 +134,17 @@ func reportWiredHook(stdout io.Writer, agent, configFile string, configData []by
 				suffix = fmt.Sprintf(" (via wrapper at %s; trusted in Codex, hashes not verified)", via)
 			} else {
 				suffix = " (trusted in Codex; hashes not verified)"
+			}
+		}
+		if !required && !versionKnown && total > 0 {
+			// Codex from 0.163 skips hooks nobody approved, and with no
+			// approvals on record only its version tells whether that
+			// applies. Say the check did not happen rather than pass it.
+			note := "codex not found in PATH or did not answer, so hook trust was not checked"
+			if via != "" {
+				suffix = fmt.Sprintf(" (via wrapper at %s; %s)", via, note)
+			} else {
+				suffix = " (" + note + ")"
 			}
 		}
 	}
@@ -133,6 +167,25 @@ func opencodePluginEnabled(configData []byte, searchStr string) bool {
 	plugins, _ := config["plugin"].([]any)
 	for _, p := range plugins {
 		if s, ok := p.(string); ok && strings.Contains(s, searchStr) {
+			return true
+		}
+	}
+	return false
+}
+
+// opencodeWrapperEnabled reports whether the wrapper plugin at via, which
+// loads ai-attn's, is an entry of the config's "plugin" list once comments
+// are removed. Entries may be written with ~/, so they are compared
+// expanded. A config that cannot be parsed falls back to a plain search.
+func opencodeWrapperEnabled(configData []byte, via string) bool {
+	stripped := stripJSONCComments(string(configData))
+	var config map[string]any
+	if err := json.Unmarshal([]byte(stripTrailingCommas(stripped)), &config); err != nil {
+		return strings.Contains(stripped, via)
+	}
+	plugins, _ := config["plugin"].([]any)
+	for _, p := range plugins {
+		if s, ok := p.(string); ok && expandHome(s) == via {
 			return true
 		}
 	}
@@ -167,10 +220,10 @@ func versionAtLeast(output string, min [3]int) bool {
 //
 // Trust is required when Codex is new enough to enforce it, or when
 // config.toml already records approvals (Codex version unknown).
-func codexUntrustedHooks(hooksPath string, hooksData []byte, via string) (missing []string, total int, required bool, err error) {
+func codexUntrustedHooks(hooksPath string, hooksData []byte, via string) (missing []string, total int, required, versionKnown bool, err error) {
 	var settings map[string]any
 	if err := json.Unmarshal(hooksData, &settings); err != nil {
-		return nil, 0, false, fmt.Errorf("parse %s: %w", hooksPath, err)
+		return nil, 0, false, false, fmt.Errorf("parse %s: %w", hooksPath, err)
 	}
 	isAiAttn := func(command string) bool {
 		if codexCommandIsAiAttn(command) {
@@ -215,7 +268,7 @@ func codexUntrustedHooks(hooksPath string, hooksData []byte, via string) (missin
 	if data, readErr := os.ReadFile(configPath); readErr == nil {
 		var config map[string]any
 		if _, err := toml.Decode(string(data), &config); err != nil {
-			return nil, 0, false, fmt.Errorf("parse %s: %w", configPath, err)
+			return nil, 0, false, false, fmt.Errorf("parse %s: %w", configPath, err)
 		}
 		if hooksTable, ok := config["hooks"].(map[string]any); ok {
 			if s, ok := hooksTable["state"].(map[string]any); ok {
@@ -224,7 +277,9 @@ func codexUntrustedHooks(hooksPath string, hooksData []byte, via string) (missin
 		}
 	}
 
-	required = len(state) > 0 || versionAtLeast(codexVersion(), codexMinTrustVersion)
+	version := codexVersion()
+	versionKnown = version != ""
+	required = len(state) > 0 || versionAtLeast(version, codexMinTrustVersion)
 	for _, key := range keys {
 		entry, _ := state[key].(map[string]any)
 		hash, _ := entry["trusted_hash"].(string)
@@ -237,7 +292,7 @@ func codexUntrustedHooks(hooksPath string, hooksData []byte, via string) (missin
 			missing = append(missing, name+" (disabled)")
 		}
 	}
-	return missing, len(keys), required, nil
+	return missing, len(keys), required, versionKnown, nil
 }
 
 // snakeCase turns a Codex hook event name (PreToolUse) into the form Codex

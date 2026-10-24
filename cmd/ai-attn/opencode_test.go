@@ -114,3 +114,34 @@ func TestOpencodeSessionID(t *testing.T) {
 		}
 	}
 }
+
+// TestHookOpencodeQuestionSetsWaitingUntilAnswered verifies the question
+// tool, which blocks the turn on the user, shows as waiting until answered.
+func TestHookOpencodeQuestionSetsWaitingUntilAnswered(t *testing.T) {
+	for _, answer := range []string{"question.replied", "question.rejected"} {
+		withTempHome(t)
+		opencodeHook(t, `{"type":"question.asked","properties":{"id":"que_1","sessionID":"oc-q"}}`)
+		if out := opencodeStatus(t, "oc-q"); !strings.Contains(out, "state=waiting") {
+			t.Fatalf("expected waiting while the question is open, got %s", out)
+		}
+		opencodeHook(t, `{"type":"`+answer+`","properties":{"requestID":"que_1","sessionID":"oc-q"}}`)
+		if out := opencodeStatus(t, "oc-q"); !strings.Contains(out, "state=working") {
+			t.Fatalf("expected working after %s, got %s", answer, out)
+		}
+	}
+}
+
+// TestHookOpencodeSessionlessErrorWritesNothing verifies a session.error
+// published outside any session (a skill that fails to load) does not open
+// a pane-keyed record that nothing would ever clear.
+func TestHookOpencodeSessionlessErrorWritesNothing(t *testing.T) {
+	home := withTempHome(t)
+	t.Setenv("TMUX_PANE", "%172")
+	opencodeHook(t, `{"type":"session.error","properties":{"error":{"name":"UnknownError","data":{"message":"bad skill"}}}}`)
+	entries, _ := os.ReadDir(filepath.Join(home, ".local", "state", "ai-attn"))
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".json") {
+			t.Fatalf("a sessionless error wrote a record: %s", e.Name())
+		}
+	}
+}
