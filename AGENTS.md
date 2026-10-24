@@ -287,7 +287,7 @@ The plugin's hooks pipe Muse's event payload to `ai-attn hook --agent muse`. Mus
 | `UserPromptSubmit`   | working       | User submitted a prompt          |
 | `PostToolUse`        | working       | Agent is running tools           |
 | `PermissionRequest`  | waiting       | Agent needs permission           |
-| `Notification`       | waiting       | Permission or elicitation dialog; other notification types (an idle reminder) are ignored. A payload without `notification_type` counts as waiting |
+| `Notification`       | waiting       | A permission prompt or a question to the user (`permission_prompt`, `question_prompt`); other notification types are ignored. A payload without `notification_type` counts as waiting |
 | `Stop`               | done          | Agent turn complete              |
 | `PostToolUseFailure` | stopped       | A tool call failed               |
 | `StopFailure`        | stopped       | The turn ended in failure        |
@@ -301,6 +301,8 @@ Two constraints shape the bundle:
 `PreToolUse` is deliberately not wired. `PostToolUse` already provides the working heartbeat, and hooking both would double the process spawns per tool call for no extra signal.
 
 As with Claude, `UserPromptSubmit` and `PostToolUse` run synchronously (no `async` key) so their writes finish before `Stop`; every other hook is async. A tool-use write that still lands after `Stop` is dropped.
+
+Muse runs short-lived background reminder sessions during and after each turn, and their tool calls fire the tool hooks under their own `session_id`. Those sessions never submit a prompt or stop, so ai-attn ignores tool events flagged `post_stop` and tool events from a session that has no record yet (every real turn opens with `UserPromptSubmit`, which writes one).
 
 ## Post-Setup Verification
 
