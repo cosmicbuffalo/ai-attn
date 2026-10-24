@@ -159,7 +159,7 @@ Show usage and list all commands.
 
 ### `ai-attn doctor`
 
-Check installation health: config file, state directory, and hooks for installed agents. Agents whose config directory is absent are reported as `not_installed` and do not fail the check. Exits `0` if all checks pass, `1` if any check fails.
+Check installation health: config file, state directory, and hooks for installed agents. Agents whose config directory is absent are reported as `not_installed` and do not fail the check; Muse is checked through `muse plugins inspect` and is `not_installed` when `muse` is not on PATH. Beyond finding the ai-attn entries, doctor checks that each agent will actually run them: Codex hooks it has not approved are `untrusted`, Muse hooks awaiting approval are `needs_approval` (or `disabled`), and a commented-out OpenCode plugin entry is `not_wired`. Exits `0` if all checks pass, `1` if any check fails.
 
 ### `ai-attn version`
 

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // doctorHome sets up a temp HOME with all hook scripts installed and Claude
@@ -271,5 +272,78 @@ func TestVersionAtLeast(t *testing.T) {
 		if got := versionAtLeast(out, codexMinTrustVersion); got != want {
 			t.Errorf("versionAtLeast(%q) = %t, want %t", out, got, want)
 		}
+	}
+}
+
+// With no approvals on record, only Codex's version says whether it
+// enforces trust; when that is unknown doctor says the check did not run.
+func TestDoctorSaysCodexTrustUncheckedWithoutVersion(t *testing.T) {
+	home := doctorHome(t)
+	writeCodex(t, home, "")
+
+	expectDoctor(t, exitOK, "hook_codex=installed (codex not found in PATH or did not answer, so hook trust was not checked)")
+}
+
+func writeOpencodeWrapper(t *testing.T, home, config string) {
+	t.Helper()
+	mustWrite(t, filepath.Join(home, "wrap.js"), `export { default } from "`+home+`/.local/share/ai-attn/plugins/opencode/index.mjs";`)
+	dir := filepath.Join(home, ".config", "opencode")
+	mustMkdir(t, dir)
+	mustWrite(t, filepath.Join(dir, "opencode.jsonc"), config)
+}
+
+// An OpenCode plugin entry that wraps ai-attn's plugin counts as wired when
+// the wrapper is in the "plugin" list, written either way.
+func TestDoctorAcceptsOpencodeWrapperPlugin(t *testing.T) {
+	for _, entry := range []string{"~/wrap.js", "HOME/wrap.js"} {
+		home := doctorHome(t)
+		writeOpencodeWrapper(t, home, `{"plugin": ["`+strings.Replace(entry, "HOME", home, 1)+`"]}`)
+
+		expectDoctor(t, exitOK, "hook_opencode=installed (via wrapper at "+filepath.Join(home, "wrap.js")+")")
+	}
+}
+
+func TestDoctorFlagsCommentedOutOpencodeWrapperPlugin(t *testing.T) {
+	home := doctorHome(t)
+	writeOpencodeWrapper(t, home, "{\n  // \"plugin\": [\"~/wrap.js\"],\n  \"plugin\": []\n}")
+
+	expectDoctor(t, exitError, "hook_opencode=not_wired")
+}
+
+// writeProbe puts an executable script named bin first on PATH.
+func writeProbe(t *testing.T, bin, body string) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, bin), []byte("#!/bin/sh\n"+body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// A probe whose launcher leaves a child holding stdout must still give up at
+// the timeout, and say that it timed out.
+func TestProbeTimeoutStopsWaitingForGrandchildren(t *testing.T) {
+	prevTimeout, prevDelay := probeTimeout, probeWaitDelay
+	probeTimeout, probeWaitDelay = 200*time.Millisecond, 200*time.Millisecond
+	t.Cleanup(func() { probeTimeout, probeWaitDelay = prevTimeout, prevDelay })
+	writeProbe(t, "muse", "sleep 3 &\nsleep 3\n")
+
+	start := time.Now()
+	_, found, err := defaultMuseInspect()
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("probe took %s", elapsed)
+	}
+	if !found || err == nil || !strings.Contains(err.Error(), "did not answer within") {
+		t.Fatalf("found=%v err=%v", found, err)
+	}
+}
+
+// Doctor only reads, so its muse probe must not let the launcher update Muse.
+func TestMuseProbeDisablesLauncherAutoUpdate(t *testing.T) {
+	writeProbe(t, "muse", `printf '%s %s' "$MUSE_NO_AUTO_UPDATE" "$MUSE_EXPERIMENTAL_PLUGINS"`)
+
+	out, found, err := defaultMuseInspect()
+	if !found || err != nil || string(out) != "1 1" {
+		t.Fatalf("found=%v err=%v out=%q", found, err, out)
 	}
 }
