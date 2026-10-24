@@ -206,6 +206,12 @@ func hookOpencode(hookPayload string, stderr io.Writer) int {
 	if !ok {
 		return exitOK
 	}
+	// OpenCode also publishes session.error for failures outside any session
+	// (a plugin or skill that fails to load). Keyed to the pane, such an
+	// error would land on a record no later event ever clears.
+	if eventType == "session.error" && sessionID == "" {
+		return exitOK
+	}
 
 	if sessionID == "" {
 		if pane := os.Getenv("TMUX_PANE"); pane != "" {
@@ -295,6 +301,12 @@ func matchOpencodeEvent(eventType string, raw map[string]any) (state, reason str
 		return "waiting", "permission.updated", true
 	case "permission.replied":
 		return "working", "permission.replied", true
+
+	// The question tool blocks the turn on the user's answer.
+	case "question.asked":
+		return "waiting", "question.asked", true
+	case "question.replied", "question.rejected":
+		return "working", eventType, true
 
 	case "message.part.updated":
 		return "working", "message.part.updated", true

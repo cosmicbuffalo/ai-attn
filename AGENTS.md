@@ -232,15 +232,19 @@ The plugin hooks into OpenCode's event system and maps events to ai-attn states:
 | `message.part.updated` | working       | Agent is generating output       |
 | `permission.replied`   | working       | User answered a permission prompt|
 | `permission.asked`     | waiting       | Agent needs permission (`permission.updated` on older releases) |
+| `question.asked`       | waiting       | The question tool is waiting for an answer |
+| `question.replied`, `question.rejected` | working | User answered the question |
 | `session.status` (idle), `session.idle` | done | Agent turn complete     |
-| `session.error`        | stopped       | Agent encountered an error       |
+| `session.error`        | stopped       | Agent encountered an error (see below) |
 | `session.deleted`      | (cleared)     | Session record removed           |
 
-OpenCode does not wait for plugin event handlers, so the plugin queues its hook calls and runs them one at a time in the order the events arrived. `message.part.updated` repeats are reported at most once a second per session. A `message.part.updated` write that still lands after the turn's idle is dropped; the next turn opens with `session.status` busy.
+OpenCode does not wait for plugin event handlers, so the plugin queues its hook calls and runs them one at a time in the order the events arrived. `message.part.updated` repeats are reported at most once a second per session. A `message.part.updated` write that still lands after the turn's idle is dropped; the next turn opens with `session.status` busy. OpenCode disposes the plugin a few milliseconds after a turn's last event when it exits, so the plugin's `dispose` waits up to 1.5 seconds for the queue to drain, and each hook call is killed after 5 seconds so a hung one cannot hold up the rest.
+
+An error inside a session is followed at once by the session going idle, so the record ends at `done`, not `stopped`. A `session.error` without a session ID (a plugin or skill that failed to load) is ignored.
 
 `file.edited` is not tracked: it carries no session ID. `session.created` is not tracked either, because opening a session is not work.
 
-The plugin uses OpenCode's V1 plugin API, which current releases (1.19.x) load. OpenCode's V2 plugin system, in development on its `dev` branch, does not run V1 plugins and reads `plugins` instead of `plugin`, so the plugin will need a V2 entry point when that ships.
+The plugin uses OpenCode's V1 plugin API, which current releases (1.19.x) load. OpenCode 2.0 has a V2 plugin system that does not run V1 plugins and reads `plugins` instead of `plugin`, and 1.19.x already offers the upgrade, so the plugin will need a V2 entry point.
 
 ## Muse
 
