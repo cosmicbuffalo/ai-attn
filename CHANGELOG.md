@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Cortex Code support. `ai-attn setup cortex` (and auto-detection) writes
+  Claude-shaped hook entries into `~/.snowflake/cortex/hooks.json`, keeping
+  other hooks and replacing legacy ai-attn Claude hooks there. Claude hooks
+  that Cortex inherits are labelled `cortex` when `CORTEX_SESSION_ID` or
+  `CORTEX_CODE_CLIENT_SURFACE` is set.
+
 ## [0.4.1] - 2026-10-24
 
 ### Fixed

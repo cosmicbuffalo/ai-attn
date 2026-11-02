@@ -208,10 +208,17 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 		{"claude.sh", filepath.Join(homeDir(), ".claude"), filepath.Join(homeDir(), ".claude", "settings.json"), "ai-attn/hooks/claude.sh"},
 		{"codex.sh", codexHome(), filepath.Join(codexHome(), "hooks.json"), "ai-attn/hooks/codex.sh"},
 		{"opencode.sh", filepath.Join(homeDir(), ".config", "opencode"), opencodeConfigFile(), "ai-attn/plugins/opencode"},
+		{"cortex.sh", cortexHome(), filepath.Join(cortexHome(), "hooks.json"), cortexHookSuffix},
 	}
 	for _, check := range hooks {
 		agent := strings.TrimSuffix(check.script, ".sh")
 		scriptPath := filepath.Join(hookDir, check.script)
+		if _, err := os.Stat(check.configDir); agent == "cortex" && errors.Is(err, os.ErrNotExist) {
+			// Installs that predate cortex support have no cortex.sh; only
+			// report it once Cortex Code is actually present.
+			fmt.Fprintf(stdout, "hook_%s=not_installed (agent config directory not found at %s; not checked)\n", agent, check.configDir)
+			continue
+		}
 		if _, err := os.Stat(scriptPath); err != nil {
 			fmt.Fprintf(stdout, "hook_%s=missing (script not found at %s)\n", agent, scriptPath)
 			allPassed = false

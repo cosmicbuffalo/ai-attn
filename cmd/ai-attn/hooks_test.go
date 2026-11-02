@@ -884,3 +884,52 @@ func TestHookClaudeNewTurnAfterStopSetsWorking(t *testing.T) {
 		t.Fatalf("expected working from PreToolUse in new turn: rc=%d out=%s", rc, statusOut)
 	}
 }
+
+// TestHookClaudeInsideCortexRecordsCortex verifies that a Claude hook fired by
+// Cortex Code, which inherits Claude's hooks, is recorded as agent cortex.
+func TestHookClaudeInsideCortexRecordsCortex(t *testing.T) {
+	withTempHome(t)
+	t.Setenv("CORTEX_SESSION_ID", "cx-env")
+	var stdout, stderr bytes.Buffer
+	payload := `{"hook_event_name":"Notification","notification_type":"permission_prompt","session_id":"co-1","cwd":"/work"}`
+	if rc := run([]string{"hook", "--agent", "claude"}, strings.NewReader(payload), &stdout, &stderr); rc != exitOK {
+		t.Fatalf("hook rc=%d stderr=%s", rc, stderr.String())
+	}
+	rec, err := readRecord(stateFile(sessionKey("cortex", "co-1", "", "")))
+	if err != nil {
+		t.Fatalf("expected cortex record: %v", err)
+	}
+	if rec.Agent != "cortex" || rec.State != "waiting" || rec.Reason != "permission_prompt" {
+		t.Fatalf("got %+v", rec)
+	}
+	if _, err := os.Stat(stateFile(sessionKey("claude", "co-1", "", ""))); !os.IsNotExist(err) {
+		t.Fatalf("no claude record should be written inside cortex, err=%v", err)
+	}
+}
+
+// TestHookCortexAgent verifies the explicit cortex agent: set, late tool-use
+// after Stop is ignored, and SessionEnd removes the record.
+func TestHookCortexAgent(t *testing.T) {
+	withTempHome(t)
+	hook := func(payload string) {
+		t.Helper()
+		var stdout, stderr bytes.Buffer
+		if rc := run([]string{"hook", "--agent", "cortex"}, strings.NewReader(payload), &stdout, &stderr); rc != exitOK {
+			t.Fatalf("hook rc=%d stderr=%s", rc, stderr.String())
+		}
+	}
+	key := sessionKey("cortex", "co-2", "", "")
+	hook(`{"hook_event_name":"PermissionRequest","session_id":"co-2","cwd":"/work"}`)
+	if rec, err := readRecord(stateFile(key)); err != nil || rec.Agent != "cortex" || rec.State != "waiting" {
+		t.Fatalf("after PermissionRequest: %+v %v", rec, err)
+	}
+	hook(`{"hook_event_name":"Stop","session_id":"co-2","cwd":"/work"}`)
+	hook(`{"hook_event_name":"PostToolUse","session_id":"co-2","cwd":"/work"}`)
+	if rec, _ := readRecord(stateFile(key)); rec.State != "done" {
+		t.Fatalf("late PostToolUse after Stop must be ignored, got %+v", rec)
+	}
+	hook(`{"hook_event_name":"SessionEnd","session_id":"co-2","cwd":"/work"}`)
+	if _, err := os.Stat(stateFile(key)); !os.IsNotExist(err) {
+		t.Fatalf("expected record removed after SessionEnd, err=%v", err)
+	}
+}

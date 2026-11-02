@@ -1,6 +1,6 @@
 # ai-attn
 
-Minimal attention signal layer for AI CLIs (Claude Code, Codex, OpenCode, Muse), designed to feed tmux status bars, notification daemons, or any external consumer.
+Minimal attention signal layer for AI CLIs (Claude Code, Codex, OpenCode, Muse, Cortex Code), designed to feed tmux status bars, notification daemons, or any external consumer.
 
 AI coding agents spend most of their time working autonomously, but occasionally get stuck waiting for a human, whether for a permission prompt, a question, or just signaling they're done and ready for their next task. Without a notification layer, you're stuck watching the terminal or worrying that your agent is blocked while you're not looking. ai-attn is the first part of my attempt at addressing this problem. It allows your agent to write out signals with hook events and exposed them through a normalized and predictable interface so that you can build the rest of your notification layer on top of it using whatever tools work best for your workflow. Hook it up to tmux, or a telegram bot or whatever and stop stressing about not babysitting your agents closely enough.
 
@@ -191,11 +191,12 @@ Create the default config file at `~/.config/ai-attn/config.toml` if it doesn't 
 
 ### `ai-attn setup [--dry-run] [agent]`
 
-Install ai-attn hooks into an agent's config file. With no argument, auto-detects installed agents (`claude`, `codex`, `opencode`, `muse`) by checking for their config directories and sets up those found. Supported explicit subjects:
+Install ai-attn hooks into an agent's config file. With no argument, auto-detects installed agents (`claude`, `codex`, `opencode`, `muse`, `cortex`) by checking for their config directories and sets up those found. Supported explicit subjects:
 
 - `claude` — writes 11 hook entries into `~/.claude/settings.json`
 - `codex` — writes `UserPromptSubmit`, `PermissionRequest`, `PreToolUse`, `PostToolUse`, and `Stop` hook entries into `~/.codex/hooks.json`
 - `opencode` — appends the bundled plugin path to the `plugin` array in `~/.config/opencode/opencode.jsonc`
+- `cortex` — writes Claude-shaped hook entries into `~/.snowflake/cortex/hooks.json`, preserving other hooks
 - `muse` — installs the bundled plugin with `muse plugins install` and trusts it with `muse plugins approve`
 
 Safe to re-run: existing ai-attn entries are removed and re-added fresh on each invocation, so non-ai-attn hooks, top-level settings, and other plugins are preserved. `--dry-run` previews changes without writing.
@@ -226,6 +227,11 @@ Clear the recorded state for a session (writes an empty state). Same flags as `s
 ### `ai-attn hook --agent <name>`
 
 Process a hook event end-to-end. Reads the event payload from stdin. The bundled Codex hook script also accepts an argv event string as a fallback for legacy notify-style wiring. This is the command invoked by hook scripts — not typically called directly.
+
+Cortex Code also inherits Claude settings. Inherited Claude hooks are labelled
+`cortex` when `CORTEX_SESSION_ID` or `CORTEX_CODE_CLIENT_SURFACE` is set, so they
+use the same identity as explicit Cortex hooks. `setup cortex` replaces legacy
+ai-attn Claude hooks inside Cortex's own hooks file.
 
 ### Exit Codes
 
@@ -267,6 +273,7 @@ bash ~/.local/share/ai-attn/uninstall.sh --purge  # also removes state files and
 **Note:** The uninstall script removes the ai-attn binary and hook scripts, but does **not** remove hook wiring from your AI agent configs. You may need to manually clean up:
 
 - **Claude Code:** Remove the ai-attn hook entries from `~/.claude/settings.json` (in the `hooks` section).
+- **Cortex Code:** Remove ai-attn hook entries from `~/.snowflake/cortex/hooks.json`.
 - **Codex:** Remove the ai-attn hook entries from `~/.codex/hooks.json`. Also remove any old ai-attn `notify` entry from `~/.codex/config.toml` if it remains from a pre-hooks setup.
 - **OpenCode:** Remove the `~/.local/share/ai-attn/plugins/opencode` entry from the `plugin` array in `~/.config/opencode/opencode.jsonc`.
 - **Muse:** Run `muse plugins remove ai-attn`.

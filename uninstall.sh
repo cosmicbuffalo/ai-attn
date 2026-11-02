@@ -32,6 +32,11 @@ if [ -f "$codex_hooks" ] && grep -q "ai-attn" "$codex_hooks" 2>/dev/null; then
   echo "    - Codex:       $codex_hooks (hooks section)"
 fi
 
+cortex_hooks="${HOME}/.snowflake/cortex/hooks.json"
+if [ -f "$cortex_hooks" ] && grep -q "ai-attn" "$cortex_hooks" 2>/dev/null; then
+  echo "    - Cortex Code: $cortex_hooks (hooks section)"
+fi
+
 opencode_jsonc="${HOME}/.config/opencode/opencode.jsonc"
 if [ -f "$opencode_jsonc" ] && grep -q "ai-attn" "$opencode_jsonc" 2>/dev/null; then
   echo "    - OpenCode:    $opencode_jsonc (plugin array)"

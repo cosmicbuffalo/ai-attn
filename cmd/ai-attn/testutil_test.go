@@ -25,6 +25,9 @@ func withTempHome(t *testing.T) string {
 	t.Setenv("AI_ATTN_STATE_DIR", "")
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	t.Setenv("CODEX_HOME", "")
+	// Tests may run inside Cortex Code, whose env relabels Claude hooks.
+	t.Setenv("CORTEX_SESSION_ID", "")
+	t.Setenv("CORTEX_CODE_CLIENT_SURFACE", "")
 	// Doctor probes must not see the Codex or Muse installed on this machine.
 	prevCodexVersion, prevMuseInspect := codexVersion, museInspect
 	codexVersion = func() string { return "" }

@@ -929,3 +929,86 @@ func TestSetupClaudeInTurnHooksAreSync(t *testing.T) {
 		}
 	}
 }
+
+// TestSetupCortexPreservesOtherHooks verifies cortex setup keeps non-ai-attn
+// hooks and stays idempotent across re-runs.
+func TestSetupCortexPreservesOtherHooks(t *testing.T) {
+	home := withTempHome(t)
+	path := filepath.Join(home, ".snowflake", "cortex", "hooks.json")
+	os.MkdirAll(filepath.Dir(path), 0o755)
+	other := `{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"peon.sh"}]}]}}`
+	if err := os.WriteFile(path, []byte(other), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if rc, out, errOut := runCLI(t, "setup", "cortex"); rc != exitOK {
+			t.Fatalf("setup rc=%d out=%s err=%s", rc, out, errOut)
+		}
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg struct {
+		Hooks map[string][]struct {
+			Hooks []struct {
+				Command string `json:"command"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range claudeHookEvents {
+		n := 0
+		for _, m := range cfg.Hooks[event] {
+			for _, h := range m.Hooks {
+				if strings.Contains(h.Command, cortexHookSuffix) {
+					n++
+				}
+			}
+		}
+		if n != 1 {
+			t.Fatalf("event %s: want 1 ai-attn hook, got %d", event, n)
+		}
+	}
+	if !strings.Contains(string(data), "peon.sh") {
+		t.Fatal("setup dropped a non-ai-attn hook")
+	}
+}
+
+func TestSetupCortexReplacesLegacyClaudeHooks(t *testing.T) {
+	home := withTempHome(t)
+	path := filepath.Join(home, ".snowflake", "cortex", "hooks.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	original := `{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"bash ~/.local/share/ai-attn/hooks/claude.sh"},{"type":"command","command":"peon.sh"}]}]}}`
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if rc, _, errOut := runCLI(t, "setup", "cortex"); rc != exitOK {
+		t.Fatal(errOut)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), claudeHookSuffix) || !strings.Contains(string(data), "peon.sh") {
+		t.Fatalf("legacy hooks were not replaced while preserving other hooks: %s", data)
+	}
+}
+
+func TestSetupCortexHandlesNullConfig(t *testing.T) {
+	home := withTempHome(t)
+	path := filepath.Join(home, ".snowflake", "cortex", "hooks.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("null"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if rc, _, errOut := runCLI(t, "setup", "cortex"); rc != exitOK {
+		t.Fatal(errOut)
+	}
+}

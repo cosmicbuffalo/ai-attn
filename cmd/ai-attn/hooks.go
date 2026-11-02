@@ -14,7 +14,7 @@ import (
 func cmdHook(args []string, stdin io.Reader, _, stderr io.Writer) int {
 	fs := flag.NewFlagSet("hook", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	agent := fs.String("agent", "", "Agent type: claude, codex, opencode, or muse")
+	agent := fs.String("agent", "", "Agent type: claude, codex, opencode, muse, or cortex")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitOK
@@ -39,6 +39,8 @@ func cmdHook(args []string, stdin io.Reader, _, stderr io.Writer) int {
 	switch *agent {
 	case "claude":
 		return hookClaude(input, stderr)
+	case "cortex":
+		return hookClaudeShaped("cortex", input, stderr)
 	case "codex":
 		return hookCodex(input, stderr)
 	case "opencode":
@@ -52,7 +54,25 @@ func cmdHook(args []string, stdin io.Reader, _, stderr io.Writer) int {
 }
 
 // hookClaude parses a Claude hook JSON payload and writes the corresponding state record.
+// Cortex Code runs Claude Code's hooks too (it imports ~/.claude/settings.json),
+// so a Claude hook fired inside a Cortex Code process is recorded as cortex.
 func hookClaude(hookPayload string, stderr io.Writer) int {
+	agent := "claude"
+	if runningInCortex() {
+		agent = "cortex"
+	}
+	return hookClaudeShaped(agent, hookPayload, stderr)
+}
+
+// runningInCortex reports whether the hook was started by Cortex Code, which
+// exports its session id and client surface to hook processes.
+func runningInCortex() bool {
+	return os.Getenv("CORTEX_SESSION_ID") != "" || os.Getenv("CORTEX_CODE_CLIENT_SURFACE") != ""
+}
+
+// hookClaudeShaped handles agents whose hooks send Claude Code's payloads
+// (Claude Code and Cortex Code), recording them under agent.
+func hookClaudeShaped(agent, hookPayload string, stderr io.Writer) int {
 	var payload map[string]any
 	if err := json.Unmarshal([]byte(hookPayload), &payload); err != nil {
 		return exitOK
@@ -108,7 +128,7 @@ func hookClaude(hookPayload string, stderr io.Writer) int {
 	case "SessionEnd":
 		paneID := os.Getenv("TMUX_PANE")
 		identity := sessionIdentity{
-			Agent:     "claude",
+			Agent:     agent,
 			SessionID: sessionID,
 			PaneID:    paneID,
 			Socket:    tmuxSocket(),
@@ -125,7 +145,7 @@ func hookClaude(hookPayload string, stderr io.Writer) int {
 		return exitOK
 	}
 
-	return writeHookState(state, "claude", sessionID, cwd, reason, stderr)
+	return writeHookState(state, agent, sessionID, cwd, reason, stderr)
 }
 
 // hookCodex parses a Codex hook payload (plain text or JSON) and writes the corresponding state record.
@@ -507,7 +527,7 @@ func writeHookState(state string, agent, sessionID, cwd, reason string, stderr i
 func isLateInTurnWrite(identity sessionIdentity, reason string) bool {
 	var turnEnded func(reason string) bool
 	switch identity.Agent {
-	case "claude", "muse":
+	case "claude", "cortex", "muse":
 		if reason != "PreToolUse" && reason != "PostToolUse" {
 			return false
 		}
