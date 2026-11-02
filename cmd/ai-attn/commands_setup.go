@@ -49,6 +49,28 @@ var codexHookEvents = []string{
 
 var allAgents = []string{"claude", "codex", "opencode", "muse", "cortex"}
 
+// parseInterspersed parses fs's flags wherever they appear in args and
+// returns the positional arguments in order. flag.FlagSet.Parse stops at the
+// first positional argument, so `setup cortex --dry-run` used to ignore
+// --dry-run and write for real. A "--" ends flag parsing as usual.
+func parseInterspersed(fs *flag.FlagSet, args []string) ([]string, error) {
+	var positional []string
+	for {
+		if err := fs.Parse(args); err != nil {
+			return nil, err
+		}
+		rest := fs.Args()
+		if len(rest) == 0 {
+			return positional, nil
+		}
+		if len(args) > len(rest) && args[len(args)-len(rest)-1] == "--" {
+			return append(positional, rest...), nil
+		}
+		positional = append(positional, rest[0])
+		args = rest[1:]
+	}
+}
+
 func cmdSetup(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("setup", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -71,16 +93,22 @@ Supported agents:
   muse      Install plugin into Muse via 'muse plugins install'
   cortex    Install hooks into ~/.snowflake/cortex/hooks.json`)
 	}
-	if err := fs.Parse(args); err != nil {
+	positional, err := parseInterspersed(fs, args)
+	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitOK
 		}
 		return exitUsage
 	}
+	if len(positional) > 1 {
+		fmt.Fprintf(stderr, "setup takes at most one agent, got %d: %s\n", len(positional), strings.Join(positional, " "))
+		fs.Usage()
+		return exitUsage
+	}
 
 	var agents []string
-	if fs.NArg() > 0 {
-		name := fs.Arg(0)
+	if len(positional) > 0 {
+		name := positional[0]
 		valid := false
 		for _, a := range allAgents {
 			if a == name {
