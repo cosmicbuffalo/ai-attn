@@ -277,6 +277,7 @@ install_scripts() {
     install -m 0755 "$SCRIPT_DIR/hooks/claude.sh" "$INSTALL_DIR/hooks/claude.sh"
     install -m 0755 "$SCRIPT_DIR/hooks/codex.sh" "$INSTALL_DIR/hooks/codex.sh"
     install -m 0755 "$SCRIPT_DIR/hooks/opencode.sh" "$INSTALL_DIR/hooks/opencode.sh"
+    install -m 0755 "$SCRIPT_DIR/hooks/cortex.sh" "$INSTALL_DIR/hooks/cortex.sh"
     install -m 0644 "$SCRIPT_DIR/plugins/opencode/index.mjs" "$PLUGIN_DIR/index.mjs"
     install -m 0644 "$SCRIPT_DIR/plugins/opencode/package.json" "$PLUGIN_DIR/package.json"
     install -m 0644 "$SCRIPT_DIR/plugins/muse/.muse-plugin/plugin.json" "$MUSE_PLUGIN_DIR/.muse-plugin/plugin.json"
@@ -291,7 +292,7 @@ install_scripts() {
     install -m 0755 "$SCRIPT_DIR/plugins/muse/hooks/session_end.sh" "$MUSE_PLUGIN_DIR/hooks/session_end.sh"
     install -m 0755 "$SCRIPT_DIR/uninstall.sh" "$INSTALL_DIR/uninstall.sh"
   else
-    for hook in _common.sh claude.sh codex.sh opencode.sh; do
+    for hook in _common.sh claude.sh codex.sh opencode.sh cortex.sh; do
       download_file "$INSTALL_DIR/hooks/$hook" "hooks/$hook"
       chmod +x "$INSTALL_DIR/hooks/$hook"
     done

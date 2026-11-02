@@ -47,7 +47,7 @@ var codexHookEvents = []string{
 	"Stop",
 }
 
-var allAgents = []string{"claude", "codex", "opencode", "muse"}
+var allAgents = []string{"claude", "codex", "opencode", "muse", "cortex"}
 
 func cmdSetup(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("setup", flag.ContinueOnError)
@@ -68,7 +68,8 @@ Supported agents:
   claude    Install hooks into ~/.claude/settings.json
   codex     Install hooks into ~/.codex/hooks.json
   opencode  Install plugin into ~/.config/opencode/opencode.jsonc
-  muse      Install plugin into Muse via 'muse plugins install'`)
+  muse      Install plugin into Muse via 'muse plugins install'
+  cortex    Install hooks into ~/.snowflake/cortex/hooks.json`)
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -113,6 +114,8 @@ Supported agents:
 			rc = setupOpencode(stdout, stderr, *dryRun, *force)
 		case "muse":
 			rc = setupMuse(stdout, stderr, *dryRun)
+		case "cortex":
+			rc = setupCortex(stdout, stderr, *dryRun)
 		}
 		if rc != exitOK {
 			exitCode = rc
@@ -131,6 +134,7 @@ func detectAgents() []string {
 		{"codex", filepath.Join(home, ".codex")},
 		{"opencode", filepath.Join(home, ".config", "opencode")},
 		{"muse", filepath.Join(home, ".config", "muse")},
+		{"cortex", cortexHome()},
 	}
 	var detected []string
 	for _, c := range checks {
@@ -143,10 +147,88 @@ func detectAgents() []string {
 
 const (
 	claudeHookSuffix   = "ai-attn/hooks/claude.sh"
+	cortexHookSuffix   = "ai-attn/hooks/cortex.sh"
 	codexHookSuffix    = "ai-attn/hooks/codex.sh"
 	aiAttnPluginMarker = "ai-attn/plugins/opencode"
 	musePluginID       = "ai-attn"
 )
+
+// cortexHome is Cortex Code's config directory.
+func cortexHome() string {
+	return filepath.Join(homeDir(), ".snowflake", "cortex")
+}
+
+// setupCortex installs the Claude-shaped hooks into Cortex Code's own
+// hooks.json. Legacy Claude ai-attn entries in that file are replaced too.
+// Hooks imported from Claude settings write the same Cortex identity. Cortex hooks have no
+// async option and always run synchronously.
+func setupCortex(stdout, stderr io.Writer, dryRun bool) int {
+	hooksPath := filepath.Join(cortexHome(), "hooks.json")
+	hookCmd := "bash ~/.local/share/ai-attn/hooks/cortex.sh"
+
+	var config map[string]any
+	data, err := os.ReadFile(hooksPath)
+	switch {
+	case os.IsNotExist(err):
+		config = map[string]any{}
+	case err != nil:
+		fmt.Fprintf(stderr, "failed to read %s: %v\n", hooksPath, err)
+		return exitError
+	default:
+		if err := json.Unmarshal(data, &config); err != nil {
+			fmt.Fprintf(stderr, "failed to parse %s: %v\n", hooksPath, err)
+			return exitError
+		}
+	}
+
+	if config == nil {
+		config = map[string]any{}
+	}
+	hooks, _ := config["hooks"].(map[string]any)
+	if hooks == nil {
+		hooks = map[string]any{}
+	}
+	for event, val := range hooks {
+		hooks[event] = removeHookEntries(val, func(command string) bool {
+			return strings.Contains(command, cortexHookSuffix) || strings.Contains(command, claudeHookSuffix)
+		})
+	}
+	for _, event := range claudeHookEvents {
+		matcher := map[string]any{
+			"matcher": "",
+			"hooks": []any{map[string]any{
+				"type":    "command",
+				"command": hookCmd,
+				"timeout": 10,
+			}},
+		}
+		existing, _ := hooks[event].([]any)
+		hooks[event] = append(existing, matcher)
+	}
+	config["hooks"] = hooks
+
+	out, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		fmt.Fprintf(stderr, "failed to marshal hooks: %v\n", err)
+		return exitError
+	}
+	out = append(out, '\n')
+
+	if dryRun {
+		fmt.Fprintf(stdout, "cortex: would install %d hooks in %s (dry-run)\n", len(claudeHookEvents), hooksPath)
+		return exitOK
+	}
+	if err := os.MkdirAll(filepath.Dir(hooksPath), 0o755); err != nil {
+		fmt.Fprintf(stderr, "failed to create directory: %v\n", err)
+		return exitError
+	}
+	if err := os.WriteFile(hooksPath, out, 0o644); err != nil {
+		fmt.Fprintf(stderr, "failed to write %s: %v\n", hooksPath, err)
+		return exitError
+	}
+	fmt.Fprintf(stdout, "cortex: installed %d hooks in %s\n", len(claudeHookEvents), hooksPath)
+	return exitOK
+}
 
 func setupClaude(stdout, stderr io.Writer, dryRun bool) int {
 	settingsPath := filepath.Join(homeDir(), ".claude", "settings.json")

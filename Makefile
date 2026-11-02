@@ -39,6 +39,7 @@ install: build
 	ln -sf $(INSTALL_DIR)/bin/$(BIN) $(BIN_DIR)/$(BIN)
 	install -m 0755 hooks/_common.sh $(INSTALL_DIR)/hooks/_common.sh
 	install -m 0755 hooks/claude.sh $(INSTALL_DIR)/hooks/claude.sh
+	install -m 0755 hooks/cortex.sh $(INSTALL_DIR)/hooks/cortex.sh
 	install -m 0755 hooks/codex.sh $(INSTALL_DIR)/hooks/codex.sh
 	install -m 0755 hooks/opencode.sh $(INSTALL_DIR)/hooks/opencode.sh
 	install -m 0644 plugins/opencode/index.mjs $(INSTALL_DIR)/plugins/opencode/index.mjs
