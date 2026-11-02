@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   that Cortex inherits are labelled `cortex` when `CORTEX_SESSION_ID` or
   `CORTEX_CODE_CLIENT_SURFACE` is set.
 
+### Fixed
+
+- `ai-attn setup AGENT --dry-run` wrote for real: flags after the agent name
+  were ignored. `setup` now accepts flags anywhere, and rejects more than one
+  agent instead of ignoring the rest.
+
 ## [0.4.1] - 2026-10-24
 
 ### Fixed

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -1010,5 +1011,57 @@ func TestSetupCortexHandlesNullConfig(t *testing.T) {
 	}
 	if rc, _, errOut := runCLI(t, "setup", "cortex"); rc != exitOK {
 		t.Fatal(errOut)
+	}
+}
+
+func TestSetupHonoursFlagsAfterTheAgent(t *testing.T) {
+	for _, args := range [][]string{
+		{"setup", "cortex", "--dry-run"},
+		{"setup", "--dry-run", "cortex"},
+		{"setup", "claude", "-dry-run"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			home := withTempHome(t)
+			os.MkdirAll(filepath.Join(home, ".snowflake", "cortex"), 0o755)
+			os.MkdirAll(filepath.Join(home, ".claude"), 0o755)
+			rc, out, errOut := runCLI(t, args...)
+			if rc != exitOK {
+				t.Fatalf("rc=%d out=%s err=%s", rc, out, errOut)
+			}
+			if !strings.Contains(out, "(dry-run)") {
+				t.Fatalf("output %q does not report a dry run", out)
+			}
+			for _, path := range []string{
+				filepath.Join(home, ".snowflake", "cortex", "hooks.json"),
+				filepath.Join(home, ".claude", "settings.json"),
+			} {
+				if _, err := os.Stat(path); err == nil {
+					t.Fatalf("dry run wrote %s", path)
+				}
+			}
+		})
+	}
+}
+
+func TestSetupRejectsMoreThanOneAgent(t *testing.T) {
+	withTempHome(t)
+	rc, _, errOut := runCLI(t, "setup", "claude", "codex")
+	if rc != exitUsage {
+		t.Fatalf("rc=%d, want usage error", rc)
+	}
+	if !strings.Contains(errOut, "at most one agent") {
+		t.Fatalf("stderr %q does not explain the error", errOut)
+	}
+}
+
+func TestParseInterspersedStopsAtDoubleDash(t *testing.T) {
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	dry := fs.Bool("dry-run", false, "")
+	got, err := parseInterspersed(fs, []string{"a", "--dry-run", "--", "--b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !*dry || strings.Join(got, ",") != "a,--b" {
+		t.Fatalf("dry=%v positional=%q", *dry, got)
 	}
 }
