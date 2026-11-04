@@ -182,25 +182,6 @@ func TestHookCodexHooksEnginePayload(t *testing.T) {
 	}
 }
 
-// SessionStart records "ready", whatever its source; "resume" in the payload
-// must not be read as a new turn.
-func TestHookCodexSessionStartSetsReady(t *testing.T) {
-	for _, source := range []string{"startup", "resume", "clear"} {
-		t.Run(source, func(t *testing.T) {
-			withTempHome(t)
-			payload := `{"hook_event_name":"SessionStart","source":"` + source + `","session_id":"s1","cwd":"/code"}`
-			var stdout, stderr bytes.Buffer
-			if rc := run([]string{"hook", "--agent", "codex"}, strings.NewReader(payload), &stdout, &stderr); rc != exitOK {
-				t.Fatalf("hook rc=%d stderr=%s", rc, stderr.String())
-			}
-			_, statusOut, _ := runCLI(t, "status", "--agent", "codex", "--session-id", "s1", "--cwd", "/code")
-			if !strings.Contains(statusOut, "state=ready") {
-				t.Fatalf("expected ready: out=%s", statusOut)
-			}
-		})
-	}
-}
-
 func TestHookCodexToolUseEventsSetWorking(t *testing.T) {
 	withTempHome(t)
 
@@ -259,7 +240,6 @@ func TestMatchCodexEvent(t *testing.T) {
 		{"PreToolUse", "working", true},
 		{"PostToolUse", "working", true},
 		{"Stop", "done", true},
-		{"SessionStart", "ready", true},
 	}
 	for _, tt := range tests {
 		s, m := matchCodexEvent(tt.event)

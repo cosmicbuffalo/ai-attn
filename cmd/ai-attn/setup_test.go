@@ -251,7 +251,7 @@ func TestSetupCodexFreshInstall(t *testing.T) {
 	if rc != exitOK {
 		t.Fatalf("expected exit 0, got %d", rc)
 	}
-	if !strings.Contains(stdout, "codex: installed 6 hooks") {
+	if !strings.Contains(stdout, "codex: installed 5 hooks") {
 		t.Fatalf("unexpected output: %s", stdout)
 	}
 

@@ -40,7 +40,6 @@ var claudeSyncHookEvents = map[string]bool{
 }
 
 var codexHookEvents = []string{
-	"SessionStart",
 	"UserPromptSubmit",
 	"PermissionRequest",
 	"PreToolUse",

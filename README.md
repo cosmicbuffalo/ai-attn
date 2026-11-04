@@ -108,7 +108,7 @@ Each `set-state` call refreshes `updated_at`, so `age_seconds` reflects how long
 
 | Field | Description |
 |-------|-------------|
-| `state` | Current state: `waiting`, `working`, `done`, `stopped`, `ready` (the agent started and is waiting for its first prompt; Codex only), or empty when cleared. **This is the field consumers should key on.** |
+| `state` | Current state: `waiting`, `working`, `done`, `stopped`, or empty when cleared. **This is the field consumers should key on.** |
 | `reason` | Agent-specific reason for the state change (e.g., `permission_prompt`, `agent-turn-complete`). |
 | `age_seconds` | Seconds since `updated_at`. |
 | `pane_id` | Auto-populated from `$TMUX_PANE` when the hook runs inside tmux. For relay records (e.g., from [pmux](https://github.com/cosmicbuffalo/pmux)), this is the outer pane where attention should be displayed. |
@@ -194,7 +194,7 @@ Create the default config file at `~/.config/ai-attn/config.toml` if it doesn't 
 Install ai-attn hooks into an agent's config file. With no argument, auto-detects installed agents (`claude`, `codex`, `opencode`, `muse`, `cortex`) by checking for their config directories and sets up those found. Supported explicit subjects:
 
 - `claude` — writes 11 hook entries into `~/.claude/settings.json`
-- `codex` — writes `SessionStart`, `UserPromptSubmit`, `PermissionRequest`, `PreToolUse`, `PostToolUse`, and `Stop` hooks into `~/.codex/config.toml`, as a block between `# ai-attn Codex hooks begin` and `# ai-attn Codex hooks end` so the file's comments and other tools' hooks are untouched. ai-attn hooks left in `~/.codex/hooks.json` by older versions are moved, since Codex warns when hooks come from both files. Codex asks you to approve the moved hooks once (`/hooks`)
+- `codex` — writes `UserPromptSubmit`, `PermissionRequest`, `PreToolUse`, `PostToolUse`, and `Stop` hooks into `~/.codex/config.toml`, as a block between `# ai-attn Codex hooks begin` and `# ai-attn Codex hooks end` so the file's comments and other tools' hooks are untouched. ai-attn hooks left in `~/.codex/hooks.json` by older versions are moved, since Codex warns when hooks come from both files. Codex asks you to approve the moved hooks once (`/hooks`)
 - `opencode` — appends the bundled plugin path to the `plugin` array in `~/.config/opencode/opencode.jsonc`
 - `cortex` — writes Claude-shaped hook entries into `~/.snowflake/cortex/hooks.json`, preserving other hooks
 - `muse` — installs the bundled plugin with `muse plugins install` and trusts it with `muse plugins approve`
@@ -214,7 +214,7 @@ Check the state of a specific session. Exits `1` if the session is waiting, `0` 
 
 ### `ai-attn set-state --agent <name> --state <state> [flags]`
 
-Record an agent state. `--state` is required and must be one of `working`, `waiting`, `done`, `stopped`, `ready`. Typically called by hook scripts, not directly.
+Record an agent state. `--state` is required and must be one of `working`, `waiting`, `done`, `stopped`. Typically called by hook scripts, not directly.
 
 Flags: `--agent`, `--state`, `--cwd`, `--session-id`, `--pane-id`, `--socket`, `--reason`.
 

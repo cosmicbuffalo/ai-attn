@@ -109,19 +109,19 @@ in `config.toml`: Codex warns when hooks come from both `config.toml` and
 
    ```toml
    # ai-attn Codex hooks begin
-   [[hooks.SessionStart]]
+   [[hooks.UserPromptSubmit]]
    matcher = ""
 
-   [[hooks.SessionStart.hooks]]
+   [[hooks.UserPromptSubmit.hooks]]
    type = "command"
    command = "bash <HOME>/.local/share/ai-attn/hooks/codex.sh"
    timeout = 10
    statusMessage = "Updating ai-attn"
    ```
 
-   Repeat the `[[hooks.SessionStart]]` / `[[hooks.SessionStart.hooks]]` pair
-   for `UserPromptSubmit`, `PermissionRequest`, `PreToolUse`, `PostToolUse` and
-   `Stop`, then close the block with `# ai-attn Codex hooks end`.
+   Repeat the `[[hooks.UserPromptSubmit]]` / `[[hooks.UserPromptSubmit.hooks]]`
+   pair for `PermissionRequest`, `PreToolUse`, `PostToolUse` and `Stop`, then
+   close the block with `# ai-attn Codex hooks end`.
 
 3. Check that the file still parses as TOML. If its hooks are written some
    other way (for example `hooks = { ... }` inline), stop and tell the user

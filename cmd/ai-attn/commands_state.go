@@ -27,7 +27,7 @@ func registerIdentityFlags(fs *flag.FlagSet) *sessionIdentity {
 }
 
 // cmdSetState implements the set-state and clear-state subcommands, toggling the session's attention state.
-// `waiting=true` is the set-state path, which requires an explicit --state flag (working/waiting/done/stopped/ready);
+// `waiting=true` is the set-state path, which requires an explicit --state flag (working/waiting/done/stopped);
 // `waiting=false` is the clear-state path, which writes an empty state regardless of --state.
 func cmdSetState(args []string, stdout, stderr io.Writer, waiting bool) int {
 	fs := flag.NewFlagSet("set-state", flag.ContinueOnError)
@@ -36,7 +36,7 @@ func cmdSetState(args []string, stdout, stderr io.Writer, waiting bool) int {
 	var reason string
 	fs.StringVar(&reason, "reason", "", "Reason for the state change")
 	state := ""
-	fs.StringVar(&state, "state", "", "State value (working, waiting, done, stopped, ready)")
+	fs.StringVar(&state, "state", "", "State value (working, waiting, done, stopped)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitOK
@@ -48,7 +48,7 @@ func cmdSetState(args []string, stdout, stderr io.Writer, waiting bool) int {
 		return exitUsage
 	}
 	if waiting && state == "" {
-		fmt.Fprintln(stderr, "error: --state is required (working, waiting, done, stopped, ready)")
+		fmt.Fprintln(stderr, "error: --state is required (working, waiting, done, stopped)")
 		return exitUsage
 	}
 	if !waiting {

@@ -20,11 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `hooks.json` as `outdated`, and no longer mistakes current hooks for a
   legacy `notify` entry.
 
-### Added
+### Notes
 
-- A `ready` state, recorded by a new Codex `SessionStart` hook when Codex
-  starts or resumes and is waiting for its first prompt. Tools such as pmux
-  can treat the session as ready before the first turn.
+- There is still no Codex signal before the first prompt. Codex (as of 0.166)
+  runs `SessionStart` only when the first prompt creates the session, not
+  when an idle launch or `codex resume` reaches the prompt, so a startup hook
+  cannot report readiness. Tools such as pmux keep reporting an idle, freshly
+  launched Codex as not yet confirmed ready.
 
 ## [0.5.0] - 2026-11-02
 
