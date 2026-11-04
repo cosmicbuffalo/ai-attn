@@ -464,6 +464,13 @@ func matchMuseEvent(event string) (state, reason string, ok bool) {
 // matchCodexEvent maps a Codex event string to an ai-attn state using substring matching.
 func matchCodexEvent(event string) (state string, ok bool) {
 	lower := strings.ToLower(event)
+	// SessionStart fires when Codex is ready for input, at startup or on
+	// resume/clear. It is matched exactly, before the substring patterns
+	// below, which would read "resume" in it as a new turn.
+	switch lower {
+	case "sessionstart", "session_start", "session-start":
+		return "ready", true
+	}
 	for _, pattern := range []string{"turn-start", "start-turn", "user_prompt", "user-prompt", "userpromptsubmit", "user_message", "user-message", "submit", "resume", "continue", "pretooluse", "posttooluse"} {
 		if strings.Contains(lower, pattern) {
 			return "working", true

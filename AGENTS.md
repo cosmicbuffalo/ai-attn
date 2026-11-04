@@ -91,100 +91,51 @@ Wire ai-attn hooks into `~/.claude/settings.json` so that attention signals are 
 
 ## Codex
 
-Wire ai-attn into `~/.codex/hooks.json` using Codex lifecycle hooks. Codex
-passes one JSON payload on stdin for each hook event.
+Wire ai-attn into `~/.codex/config.toml` using Codex lifecycle hooks. Codex
+passes one JSON payload on stdin for each hook event. Keep all ai-attn hooks
+in `config.toml`: Codex warns when hooks come from both `config.toml` and
+`hooks.json`.
 
 ### Steps
 
-1. Read `~/.codex/hooks.json`. If the file does not exist, start with:
+1. Read `~/.codex/config.toml`. If it already has a block between
+   `# ai-attn Codex hooks begin` and `# ai-attn Codex hooks end`, remove it.
+   Leave every other line, including comments and other tools' hooks blocks,
+   as it is.
 
-   ```json
-   { "hooks": {} }
+2. Append this block at the end of the file, after a blank line. Replace
+   `<HOME>` with the actual home directory (for example
+   `bash /home/username/.local/share/ai-attn/hooks/codex.sh`):
+
+   ```toml
+   # ai-attn Codex hooks begin
+   [[hooks.SessionStart]]
+   matcher = ""
+
+   [[hooks.SessionStart.hooks]]
+   type = "command"
+   command = "bash <HOME>/.local/share/ai-attn/hooks/codex.sh"
+   timeout = 10
+   statusMessage = "Updating ai-attn"
    ```
 
-2. Ensure the top-level `"hooks"` key exists as an object. Preserve all existing non-ai-attn hooks.
+   Repeat the `[[hooks.SessionStart]]` / `[[hooks.SessionStart.hooks]]` pair
+   for `UserPromptSubmit`, `PermissionRequest`, `PreToolUse`, `PostToolUse` and
+   `Stop`, then close the block with `# ai-attn Codex hooks end`.
 
-3. For `UserPromptSubmit`, `PermissionRequest`, `PreToolUse`, `PostToolUse`, and `Stop`, append one matcher group with the ai-attn command. Use the absolute path to the installed hook script:
+3. Check that the file still parses as TOML. If its hooks are written some
+   other way (for example `hooks = { ... }` inline), stop and tell the user
+   rather than writing a file Codex cannot load.
 
-   ```json
-   {
-     "hooks": {
-       "UserPromptSubmit": [
-         {
-           "matcher": "",
-           "hooks": [
-             {
-               "type": "command",
-               "command": "bash <HOME>/.local/share/ai-attn/hooks/codex.sh",
-               "timeout": 10,
-               "statusMessage": "Updating ai-attn"
-             }
-           ]
-         }
-       ],
-       "PermissionRequest": [
-         {
-           "matcher": "",
-           "hooks": [
-             {
-               "type": "command",
-               "command": "bash <HOME>/.local/share/ai-attn/hooks/codex.sh",
-               "timeout": 10,
-               "statusMessage": "Updating ai-attn"
-             }
-           ]
-         }
-       ],
-       "PreToolUse": [
-         {
-           "matcher": "",
-           "hooks": [
-             {
-               "type": "command",
-               "command": "bash <HOME>/.local/share/ai-attn/hooks/codex.sh",
-               "timeout": 10,
-               "statusMessage": "Updating ai-attn"
-             }
-           ]
-         }
-       ],
-       "PostToolUse": [
-         {
-           "matcher": "",
-           "hooks": [
-             {
-               "type": "command",
-               "command": "bash <HOME>/.local/share/ai-attn/hooks/codex.sh",
-               "timeout": 10,
-               "statusMessage": "Updating ai-attn"
-             }
-           ]
-         }
-       ],
-       "Stop": [
-         {
-           "matcher": "",
-           "hooks": [
-             {
-               "type": "command",
-               "command": "bash <HOME>/.local/share/ai-attn/hooks/codex.sh",
-               "timeout": 10,
-               "statusMessage": "Updating ai-attn"
-             }
-           ]
-         }
-       ]
-     }
-   }
-   ```
-
-4. Replace `<HOME>` with the actual home directory. For example:
-
-   ```json
-   "command": "bash /home/username/.local/share/ai-attn/hooks/codex.sh"
-   ```
+4. If `~/.codex/hooks.json` has ai-attn hook entries (commands containing
+   `ai-attn/hooks/codex.sh`), remove them, keeping other hooks. Delete the file
+   if nothing is left.
 
 5. If `~/.codex/config.toml` contains the old ai-attn `notify` entry, remove it. Leave unrelated `notify` commands alone; they are not ai-attn hooks.
+
+6. Tell the user to approve the hooks in Codex (`/hooks`). Codex skips hooks
+   it has not approved, and an approval is tied to the hook's file and
+   position, so moved hooks need approving again.
 
 ## OpenCode
 

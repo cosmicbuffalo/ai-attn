@@ -48,27 +48,45 @@ func readTOMLConfig(t *testing.T, path string) map[string]any {
 	return config
 }
 
-func assertCodexHooksInstalled(t *testing.T, settings map[string]any) {
+// codexHooks returns the hook groups per event in home's Codex config.toml.
+func codexHooks(t *testing.T, home string) map[string][]map[string]any {
 	t.Helper()
+	configPath := filepath.Join(home, ".codex", "config.toml")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("failed to read config: %v", err)
+	}
+	events, err := codexHookGroups(configPath, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return events
+}
+
+// assertCodexHooksInstalled checks config.toml has exactly one ai-attn hook
+// per Codex event, and that no ai-attn hooks remain in hooks.json.
+func assertCodexHooksInstalled(t *testing.T, home string) {
+	t.Helper()
+	events := codexHooks(t, home)
 	for _, event := range codexHookEvents {
-		if countMatchers(t, settings, event) != 1 {
-			t.Fatalf("expected 1 matcher for %s, got %d", event, countMatchers(t, settings, event))
+		var commands []string
+		for _, group := range events[event] {
+			for _, hook := range asMaps(group["hooks"]) {
+				if hook["type"] != "command" {
+					t.Fatalf("expected command hook for %s, got %v", event, hook["type"])
+				}
+				command, _ := hook["command"].(string)
+				if strings.Contains(command, "ai-attn/hooks/codex.sh") {
+					commands = append(commands, command)
+				}
+			}
 		}
-		hooks := settings["hooks"].(map[string]any)
-		matchers := hooks[event].([]any)
-		matcher := matchers[0].(map[string]any)
-		hookList := matcher["hooks"].([]any)
-		if len(hookList) != 1 {
-			t.Fatalf("expected 1 hook for %s, got %d", event, len(hookList))
+		if len(commands) != 1 {
+			t.Fatalf("expected 1 ai-attn hook for %s, got %d: %v", event, len(commands), commands)
 		}
-		hook := hookList[0].(map[string]any)
-		if hook["type"] != "command" {
-			t.Fatalf("expected command hook for %s, got %v", event, hook["type"])
-		}
-		command, _ := hook["command"].(string)
-		if !strings.Contains(command, "ai-attn/hooks/codex.sh") {
-			t.Fatalf("expected codex hook command for %s, got %q", event, command)
-		}
+	}
+	if data, err := os.ReadFile(filepath.Join(home, ".codex", "hooks.json")); err == nil && strings.Contains(string(data), "ai-attn/hooks/codex.sh") {
+		t.Fatalf("expected no ai-attn hooks left in hooks.json:\n%s", data)
 	}
 }
 
@@ -233,13 +251,11 @@ func TestSetupCodexFreshInstall(t *testing.T) {
 	if rc != exitOK {
 		t.Fatalf("expected exit 0, got %d", rc)
 	}
-	if !strings.Contains(stdout, "codex: installed 5 hooks") {
+	if !strings.Contains(stdout, "codex: installed 6 hooks") {
 		t.Fatalf("unexpected output: %s", stdout)
 	}
 
-	hooksPath := filepath.Join(home, ".codex", "hooks.json")
-	settings := readSettings(t, hooksPath)
-	assertCodexHooksInstalled(t, settings)
+	assertCodexHooksInstalled(t, home)
 }
 
 func TestSetupCodexIdempotent(t *testing.T) {
@@ -250,9 +266,100 @@ func TestSetupCodexIdempotent(t *testing.T) {
 	runCLI(t, "setup", "codex")
 	runCLI(t, "setup", "codex")
 
-	hooksPath := filepath.Join(home, ".codex", "hooks.json")
-	settings := readSettings(t, hooksPath)
-	assertCodexHooksInstalled(t, settings)
+	assertCodexHooksInstalled(t, home)
+}
+
+// Another tool's marked hooks block and the file's comments survive setup,
+// and re-running setup replaces ai-attn's block in place.
+func TestSetupCodexPreservesOtherHooksAndComments(t *testing.T) {
+	home := withTempHome(t)
+	configPath := filepath.Join(home, ".codex", "config.toml")
+	os.MkdirAll(filepath.Dir(configPath), 0o755)
+	original := `# my settings
+model = "gpt-5"
+
+# peon-ping Codex hooks begin
+[[hooks.Stop]]
+
+[[hooks.Stop.hooks]]
+type = "command"
+command = "peon.sh"
+# peon-ping Codex hooks end
+`
+	os.WriteFile(configPath, []byte(original), 0o644)
+
+	runCLI(t, "setup", "codex")
+	runCLI(t, "setup", "codex")
+
+	data, _ := os.ReadFile(configPath)
+	if !strings.HasPrefix(string(data), original) {
+		t.Fatalf("expected original content kept at the top, got:\n%s", data)
+	}
+	if n := strings.Count(string(data), codexBlockBegin); n != 1 {
+		t.Fatalf("expected 1 ai-attn block, got %d:\n%s", n, data)
+	}
+	assertCodexHooksInstalled(t, home)
+	stop := codexHooks(t, home)["Stop"]
+	if len(stop) != 2 {
+		t.Fatalf("expected peon-ping's and ai-attn's Stop groups, got %d", len(stop))
+	}
+	if cmd := asMaps(stop[0]["hooks"])[0]["command"]; cmd != "peon.sh" {
+		t.Fatalf("expected peon-ping's group to stay first (so its trust key is unchanged), got %v", cmd)
+	}
+}
+
+// Hooks from older setups move out of hooks.json; other tools' hooks there
+// are kept, and a file left empty is removed.
+func TestSetupCodexMovesHooksOutOfHooksJSON(t *testing.T) {
+	for _, tc := range []struct {
+		name, other string
+		keepFile    bool
+	}{
+		{"only ai-attn", "", false},
+		{"with other hooks", `{"matcher":"","hooks":[{"type":"command","command":"notify-me"}]},`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := withTempHome(t)
+			hooksPath := filepath.Join(home, ".codex", "hooks.json")
+			os.MkdirAll(filepath.Dir(hooksPath), 0o755)
+			os.WriteFile(hooksPath, []byte(`{"hooks":{"Stop":[`+tc.other+`{"matcher":"","hooks":[{"type":"command","command":"bash '/x/.local/share/ai-attn/hooks/codex.sh'"}]}]}}`), 0o644)
+
+			rc, stdout, stderr := runCLI(t, "setup", "codex")
+			if rc != exitOK {
+				t.Fatalf("rc=%d stderr=%s", rc, stderr)
+			}
+			if !strings.Contains(stdout, "moved ai-attn hooks out of "+hooksPath) {
+				t.Fatalf("expected migration message, got: %s", stdout)
+			}
+			assertCodexHooksInstalled(t, home)
+			data, err := os.ReadFile(hooksPath)
+			if tc.keepFile {
+				if err != nil || !strings.Contains(string(data), "notify-me") {
+					t.Fatalf("expected other hooks kept in hooks.json, err=%v data=%s", err, data)
+				}
+			} else if !os.IsNotExist(err) {
+				t.Fatalf("expected empty hooks.json to be removed, err=%v data=%s", err, data)
+			}
+		})
+	}
+}
+
+// Setup refuses to write a config.toml that would not parse, instead of
+// leaving Codex unable to start.
+func TestSetupCodexRefusesUnmergeableHooks(t *testing.T) {
+	home := withTempHome(t)
+	configPath := filepath.Join(home, ".codex", "config.toml")
+	os.MkdirAll(filepath.Dir(configPath), 0o755)
+	original := "hooks = { Stop = [] }\n"
+	os.WriteFile(configPath, []byte(original), 0o644)
+
+	rc, _, stderr := runCLI(t, "setup", "codex")
+	if rc != exitError || !strings.Contains(stderr, "refusing to write") {
+		t.Fatalf("expected refusal, rc=%d stderr=%s", rc, stderr)
+	}
+	if data, _ := os.ReadFile(configPath); string(data) != original {
+		t.Fatalf("expected config untouched, got:\n%s", data)
+	}
 }
 
 func TestSetupCodexPreservesOtherKeys(t *testing.T) {
@@ -294,7 +401,7 @@ func TestSetupCodexRemovesStaleAiAttnNotify(t *testing.T) {
 	if _, ok := config["notify"]; ok {
 		t.Fatalf("expected stale ai-attn notify to be removed, got %v", config["notify"])
 	}
-	assertCodexHooksInstalled(t, readSettings(t, filepath.Join(home, ".codex", "hooks.json")))
+	assertCodexHooksInstalled(t, home)
 }
 
 func TestSetupCodexPreservesForeignNotify(t *testing.T) {
@@ -310,10 +417,10 @@ func TestSetupCodexPreservesForeignNotify(t *testing.T) {
 	}
 
 	data, _ := os.ReadFile(configPath)
-	if string(data) != original {
+	if !strings.HasPrefix(string(data), original) {
 		t.Fatalf("expected config to be unchanged, got: %s", string(data))
 	}
-	assertCodexHooksInstalled(t, readSettings(t, filepath.Join(home, ".codex", "hooks.json")))
+	assertCodexHooksInstalled(t, home)
 }
 
 func TestSetupCodexPreservesNotifyWrapper(t *testing.T) {
@@ -329,10 +436,10 @@ func TestSetupCodexPreservesNotifyWrapper(t *testing.T) {
 		t.Fatalf("expected setup to preserve wrapper notify, rc=%d stderr=%s", rc, stderr)
 	}
 	data, _ := os.ReadFile(configPath)
-	if string(data) != original {
+	if !strings.HasPrefix(string(data), original) {
 		t.Fatalf("expected config unchanged, got:\n%s", string(data))
 	}
-	assertCodexHooksInstalled(t, readSettings(t, filepath.Join(home, ".codex", "hooks.json")))
+	assertCodexHooksInstalled(t, home)
 }
 
 func TestSetupClaudePreservesNonCanonicalWrapper(t *testing.T) {
@@ -407,10 +514,10 @@ func TestSetupCodexForceStillPreservesForeignNotify(t *testing.T) {
 	}
 
 	data, _ := os.ReadFile(configPath)
-	if string(data) != original {
+	if !strings.HasPrefix(string(data), original) {
 		t.Fatalf("expected foreign notify to be preserved, got %s", string(data))
 	}
-	assertCodexHooksInstalled(t, readSettings(t, filepath.Join(home, ".codex", "hooks.json")))
+	assertCodexHooksInstalled(t, home)
 }
 
 func TestSetupCodexForeignNotifyDoesNotBlockOtherAgents(t *testing.T) {
@@ -623,10 +730,7 @@ func TestSetupAutoDetectMultiple(t *testing.T) {
 	if _, err := os.Stat(settingsPath); err != nil {
 		t.Fatalf("expected claude settings to be written: %v", err)
 	}
-	codexPath := filepath.Join(home, ".codex", "hooks.json")
-	if _, err := os.Stat(codexPath); err != nil {
-		t.Fatalf("expected codex hooks to be written: %v", err)
-	}
+	assertCodexHooksInstalled(t, home)
 }
 
 func TestSetupAllAgents(t *testing.T) {
@@ -684,9 +788,9 @@ func TestSetupDryRunCodex(t *testing.T) {
 	if !strings.Contains(stdout, "(dry-run)") {
 		t.Fatalf("expected dry-run in output, got: %s", stdout)
 	}
-	hooksPath := filepath.Join(home, ".codex", "hooks.json")
-	if _, err := os.Stat(hooksPath); !os.IsNotExist(err) {
-		t.Fatalf("expected hooks.json to not exist in dry-run, err=%v", err)
+	configPath := filepath.Join(home, ".codex", "config.toml")
+	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+		t.Fatalf("expected config.toml to not exist in dry-run, err=%v", err)
 	}
 }
 

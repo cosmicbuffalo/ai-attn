@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- `ai-attn setup codex` writes its hooks into `~/.codex/config.toml`, in a
+  block between `# ai-attn Codex hooks begin` and `# ai-attn Codex hooks end`,
+  instead of `~/.codex/hooks.json`. Codex warned ("loading hooks from both
+  ...") when other tools, such as peon-ping, kept their hooks in
+  `config.toml`. Setup moves existing ai-attn hooks out of `hooks.json`
+  (deleting it if nothing else is left) and leaves the file's comments and
+  other hooks untouched. Codex asks for the moved hooks to be approved once.
+- `ai-attn doctor` checks Codex hooks in `config.toml`, reports hooks still in
+  `hooks.json` as `outdated`, and no longer mistakes current hooks for a
+  legacy `notify` entry.
+
+### Added
+
+- A `ready` state, recorded by a new Codex `SessionStart` hook when Codex
+  starts or resumes and is waiting for its first prompt. Tools such as pmux
+  can treat the session as ready before the first turn.
+
 ## [0.5.0] - 2026-11-02
 
 ### Added

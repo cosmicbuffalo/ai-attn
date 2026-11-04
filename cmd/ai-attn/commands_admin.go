@@ -14,6 +14,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/BurntSushi/toml"
 )
 
 // cmdLogs implements the logs subcommand, tailing the hook event log via the system tail command.
@@ -206,7 +208,7 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	}
 	hooks := []hookCheck{
 		{"claude.sh", filepath.Join(homeDir(), ".claude"), filepath.Join(homeDir(), ".claude", "settings.json"), "ai-attn/hooks/claude.sh"},
-		{"codex.sh", codexHome(), filepath.Join(codexHome(), "hooks.json"), "ai-attn/hooks/codex.sh"},
+		{"codex.sh", codexHome(), filepath.Join(codexHome(), "config.toml"), "ai-attn/hooks/codex.sh"},
 		{"opencode.sh", filepath.Join(homeDir(), ".config", "opencode"), opencodeConfigFile(), "ai-attn/plugins/opencode"},
 		{"cortex.sh", cortexHome(), filepath.Join(cortexHome(), "hooks.json"), cortexHookSuffix},
 	}
@@ -246,15 +248,29 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 				allPassed = false
 				continue
 			}
-			if agent == "codex" && legacyCodexNotifyConfigured(check.searchStr) {
-				fmt.Fprintf(stdout, "hook_%s=legacy_notify (legacy ai-attn notify is present in %s; run 'ai-attn setup codex' to install current Codex hooks)\n",
-					agent, filepath.Join(codexHome(), "config.toml"))
+			if agent == "codex" && codexHooksJSONHasAiAttn(check.searchStr) {
+				fmt.Fprintf(stdout, "hook_%s=outdated (ai-attn hooks are in %s; run 'ai-attn setup codex' to move them into %s)\n",
+					agent, filepath.Join(codexHome(), "hooks.json"), check.configFile)
 				allPassed = false
 				continue
 			}
 			fmt.Fprintf(stdout, "hook_%s=not_wired (script exists but not referenced in %s) — run 'ai-attn setup' to fix\n", agent, check.configFile)
 			allPassed = false
 			continue
+		}
+		if agent == "codex" {
+			if legacyCodexNotifyConfigured(check.searchStr) {
+				fmt.Fprintf(stdout, "hook_%s=legacy_notify (legacy ai-attn notify is present in %s; run 'ai-attn setup codex' to install current Codex hooks)\n",
+					agent, check.configFile)
+				allPassed = false
+				continue
+			}
+			if !strings.Contains(string(configData), check.searchStr) && codexHooksJSONHasAiAttn(check.searchStr) {
+				fmt.Fprintf(stdout, "hook_%s=outdated (ai-attn hooks are in %s; run 'ai-attn setup codex' to move them into %s)\n",
+					agent, filepath.Join(codexHome(), "hooks.json"), check.configFile)
+				allPassed = false
+				continue
+			}
 		}
 		if strings.Contains(string(configData), check.searchStr) {
 			if !reportWiredHook(stdout, agent, check.configFile, configData, check.searchStr, "") {
@@ -266,12 +282,6 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 			if !reportWiredHook(stdout, agent, check.configFile, configData, check.searchStr, wrapper) {
 				allPassed = false
 			}
-			continue
-		}
-		if agent == "codex" && legacyCodexNotifyConfigured(check.searchStr) {
-			fmt.Fprintf(stdout, "hook_%s=legacy_notify (legacy ai-attn notify is present in %s; run 'ai-attn setup codex' to install current Codex hooks)\n",
-				agent, filepath.Join(codexHome(), "config.toml"))
-			allPassed = false
 			continue
 		}
 		fmt.Fprintf(stdout, "hook_%s=not_wired (script exists but not referenced in %s) — run 'ai-attn setup' to fix\n", agent, check.configFile)
@@ -317,12 +327,32 @@ func findWrapperReferencingCanonical(configData []byte, searchStr string) string
 	return ""
 }
 
+// legacyCodexNotifyConfigured reports whether config.toml still has a
+// pre-hooks ai-attn `notify` entry. Only the notify key is checked, since
+// current hooks live in the same file.
 func legacyCodexNotifyConfigured(searchStr string) bool {
 	data, err := os.ReadFile(filepath.Join(codexHome(), "config.toml"))
 	if err != nil {
 		return false
 	}
-	return strings.Contains(string(data), searchStr)
+	var config map[string]any
+	if _, err := toml.Decode(string(data), &config); err != nil {
+		return false
+	}
+	notify, _ := config["notify"].([]any)
+	for _, v := range notify {
+		if s, ok := v.(string); ok && strings.Contains(s, searchStr) {
+			return true
+		}
+	}
+	return false
+}
+
+// codexHooksJSONHasAiAttn reports whether hooks.json still holds ai-attn
+// hooks from a setup that predates config.toml hooks.
+func codexHooksJSONHasAiAttn(searchStr string) bool {
+	data, err := os.ReadFile(filepath.Join(codexHome(), "hooks.json"))
+	return err == nil && strings.Contains(string(data), searchStr)
 }
 
 // candidatePathsInConfig returns paths mentioned in the agent's config that
