@@ -35,6 +35,7 @@ install-hooks:
 install: build
 	mkdir -p $(INSTALL_DIR)/bin $(INSTALL_DIR)/hooks $(BIN_DIR)
 	mkdir -p $(INSTALL_DIR)/plugins/opencode $(INSTALL_DIR)/plugins/muse/.muse-plugin $(INSTALL_DIR)/plugins/muse/hooks
+	mkdir -p $(INSTALL_DIR)/plugins/pi $(INSTALL_DIR)/plugins/omp
 	cp $(BIN) $(INSTALL_DIR)/bin/$(BIN)
 	ln -sf $(INSTALL_DIR)/bin/$(BIN) $(BIN_DIR)/$(BIN)
 	install -m 0755 hooks/_common.sh $(INSTALL_DIR)/hooks/_common.sh
@@ -42,6 +43,12 @@ install: build
 	install -m 0755 hooks/cortex.sh $(INSTALL_DIR)/hooks/cortex.sh
 	install -m 0755 hooks/codex.sh $(INSTALL_DIR)/hooks/codex.sh
 	install -m 0755 hooks/opencode.sh $(INSTALL_DIR)/hooks/opencode.sh
+	install -m 0755 hooks/gemini.sh $(INSTALL_DIR)/hooks/gemini.sh
+	install -m 0755 hooks/agy.sh $(INSTALL_DIR)/hooks/agy.sh
+	install -m 0755 hooks/copilot.sh $(INSTALL_DIR)/hooks/copilot.sh
+	install -m 0755 hooks/grok.sh $(INSTALL_DIR)/hooks/grok.sh
+	install -m 0644 plugins/pi/ai-attn.ts $(INSTALL_DIR)/plugins/pi/ai-attn.ts
+	install -m 0644 plugins/omp/ai-attn.ts $(INSTALL_DIR)/plugins/omp/ai-attn.ts
 	install -m 0644 plugins/opencode/index.mjs $(INSTALL_DIR)/plugins/opencode/index.mjs
 	install -m 0644 plugins/opencode/package.json $(INSTALL_DIR)/plugins/opencode/package.json
 	install -m 0644 plugins/muse/.muse-plugin/plugin.json $(INSTALL_DIR)/plugins/muse/.muse-plugin/plugin.json

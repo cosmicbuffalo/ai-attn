@@ -1,17 +1,17 @@
 # ai-attn
 
-Minimal attention signal layer for AI CLIs (Claude Code, Codex, OpenCode, Muse, Cortex Code), designed to feed tmux status bars, notification daemons, or any external consumer.
+Minimal attention signal layer for AI CLIs (Claude Code, Codex, OpenCode, Muse, Cortex Code, Gemini CLI, Antigravity CLI, GitHub Copilot CLI, Grok Build, Pi, Oh My Pi), designed to feed tmux status bars, notification daemons, or any external consumer.
 
 AI coding agents spend most of their time working autonomously, but occasionally get stuck waiting for a human, whether for a permission prompt, a question, or just signaling they're done and ready for their next task. Without a notification layer, you're stuck watching the terminal or worrying that your agent is blocked while you're not looking. ai-attn is the first part of my attempt at addressing this problem. It allows your agent to write out signals with hook events and exposed them through a normalized and predictable interface so that you can build the rest of your notification layer on top of it using whatever tools work best for your workflow. Hook it up to tmux, or a telegram bot or whatever and stop stressing about not babysitting your agents closely enough.
 
 ## How It Works
 
 ```
-AI Agent (Claude/Codex/OpenCode/Muse)
+AI Agent (Claude/Codex/OpenCode/Muse/Gemini/Copilot/Grok/Pi/...)
     │
     │  hook event (JSON on stdin or argv)
     ▼
-Hook Script (claude.sh / codex.sh / opencode.sh / muse plugin)
+Hook Script or plugin (claude.sh / codex.sh / gemini.sh / ... / Pi extension)
     │
     │  ai-attn hook --agent claude/codex
     ▼
@@ -54,7 +54,7 @@ curl -fsSL https://raw.githubusercontent.com/cosmicbuffalo/ai-attn/main/install.
 
 ### Wiring Hooks
 
-`install.sh` runs `ai-attn setup` automatically after installing the binary. Setup auto-detects which agents are installed by checking for their config directories (`~/.claude`, `~/.codex`, `~/.config/opencode`, `~/.config/muse`) and wires hooks into those found. Re-running `ai-attn setup` is idempotent — existing ai-attn entries are removed and re-added fresh, so other settings and non-ai-attn hooks are preserved.
+`install.sh` runs `ai-attn setup` automatically after installing the binary. Setup auto-detects which agents are installed by checking for their config directories (`~/.claude`, `~/.codex`, `~/.config/opencode`, `~/.config/muse`, `~/.snowflake/cortex`, `~/.copilot`, `~/.grok`, `~/.pi/agent`, `~/.omp/agent`; Gemini CLI and Antigravity by `~/.gemini/settings.json`, `~/.gemini/antigravity-cli` or their command on `PATH`) and wires hooks into those found. Re-running `ai-attn setup` is idempotent — existing ai-attn entries are removed and re-added fresh, so other settings and non-ai-attn hooks are preserved.
 
 If setup didn't run (e.g. the agent was installed after ai-attn) or only some agents were detected, you can run it yourself:
 
@@ -191,19 +191,27 @@ Create the default config file at `~/.config/ai-attn/config.toml` if it doesn't 
 
 ### `ai-attn setup [--dry-run] [agent]`
 
-Install ai-attn hooks into an agent's config file. With no argument, auto-detects installed agents (`claude`, `codex`, `opencode`, `muse`, `cortex`) by checking for their config directories and sets up those found. Supported explicit subjects:
+Install ai-attn hooks into an agent's config file. With no argument, auto-detects installed agents (`claude`, `codex`, `opencode`, `muse`, `cortex`, `gemini`, `agy`, `copilot`, `grok`, `pi`, `omp`) by checking for their config directories and sets up those found. Supported explicit subjects:
 
 - `claude` — writes 11 hook entries into `~/.claude/settings.json`
 - `codex` — writes `UserPromptSubmit`, `PermissionRequest`, `PreToolUse`, `PostToolUse`, and `Stop` hooks into `~/.codex/config.toml`, as a block between `# ai-attn Codex hooks begin` and `# ai-attn Codex hooks end` so the file's comments and other tools' hooks are untouched. ai-attn hooks left in `~/.codex/hooks.json` by older versions are moved, since Codex warns when hooks come from both files. Codex asks you to approve the moved hooks once (`/hooks`)
 - `opencode` — appends the bundled plugin path to the `plugin` array in `~/.config/opencode/opencode.jsonc`
 - `cortex` — writes Claude-shaped hook entries into `~/.snowflake/cortex/hooks.json`, preserving other hooks
 - `muse` — installs the bundled plugin with `muse plugins install` and trusts it with `muse plugins approve`
+- `gemini` — writes `BeforeAgent`, `AfterTool`, `Notification` (`ToolPermission`), `AfterAgent`, and `SessionEnd` hooks into `~/.gemini/settings.json` (`$GEMINI_CLI_HOME/.gemini` when set), preserving other settings and hooks
+- `agy` — writes an `ai-attn` group with `PreInvocation`, `PostToolUse`, and `Stop` hooks into `~/.gemini/config/hooks.json`, preserving other groups. Antigravity has no permission or session-end event, so it reports only working and done
+- `copilot` — writes its own hooks file, `~/.copilot/hooks/ai-attn.json` (`$COPILOT_HOME/hooks`). Accurate waiting needs Copilot CLI 1.0.26 or later
+- `grok` — writes its own hooks file, `~/.grok/hooks/ai-attn.json` (`$GROK_HOME/hooks`). Grok also runs Claude Code's hooks by default; ai-attn records those as `grok` too
+- `pi` — copies the bundled extension to `~/.pi/agent/extensions/ai-attn.ts` (`$PI_CODING_AGENT_DIR/extensions`). Needs Pi 0.80.5 or later; waiting (extension dialogs only; Pi has no permission prompts) needs 0.84.4
+- `omp` — copies the bundled extension to `~/.omp/agent/extensions/ai-attn.ts`. Waiting covers tool approvals and the `ask` tool
+
+Setup never replaces a `copilot`, `grok`, `pi`, or `omp` file that ai-attn did not write, and the uninstaller removes those files.
 
 Safe to re-run: existing ai-attn entries are removed and re-added fresh on each invocation, so non-ai-attn hooks, top-level settings, and other plugins are preserved. `--dry-run` previews changes without writing.
 
 One case requires explicit opt-in via `--force`:
 
-- **OpenCode**'s setup rewrites `opencode.jsonc` as plain JSON, which would drop `//` and `/* */` comments. If the file contains comments, setup refuses unless `--force` is passed.
+- **OpenCode**'s setup rewrites `opencode.jsonc` as plain JSON, which would drop `//` and `/* */` comments. If the file contains comments, setup refuses unless `--force` is passed. The same goes for **Gemini CLI**'s `settings.json`.
 - **Muse** cannot be wired by editing a config file: its hooks are delivered as a plugin, so setup shells out to `muse plugins install` and `muse plugins approve` instead. Both steps run on every setup, because Muse pins its trust decision to the bundle's content hash and an updated bundle needs a fresh approval.
 
 The alternative is to wire the hook manually (see [AGENTS.md](AGENTS.md)).
@@ -224,9 +232,9 @@ Flags: `--agent`, `--state`, `--cwd`, `--session-id`, `--pane-id`, `--socket`, `
 
 Clear the recorded state for a session (writes an empty state). Same flags as `set-state`.
 
-### `ai-attn hook --agent <name>`
+### `ai-attn hook --agent <name> [--event <name>]`
 
-Process a hook event end-to-end. Reads the event payload from stdin. The bundled Codex hook script also accepts an argv event string as a fallback for legacy notify-style wiring. This is the command invoked by hook scripts — not typically called directly.
+Process a hook event end-to-end. Reads the event payload from stdin. `--event` names the event for agents whose payloads do not (Copilot CLI, and Antigravity before 1.5.4). The bundled Codex hook script also accepts an argv event string as a fallback for legacy notify-style wiring. This is the command invoked by hook scripts — not typically called directly.
 
 Cortex Code also inherits Claude settings. Inherited Claude hooks are labelled
 `cortex` when `CORTEX_SESSION_ID` or `CORTEX_CODE_CLIENT_SURFACE` is set, so they
@@ -277,6 +285,10 @@ bash ~/.local/share/ai-attn/uninstall.sh --purge  # also removes state files and
 - **Codex:** Remove the block between `# ai-attn Codex hooks begin` and `# ai-attn Codex hooks end` from `~/.codex/config.toml` (or, for older versions, the ai-attn hook entries from `~/.codex/hooks.json`). Also remove any old ai-attn `notify` entry from `~/.codex/config.toml` if it remains from a pre-hooks setup.
 - **OpenCode:** Remove the `~/.local/share/ai-attn/plugins/opencode` entry from the `plugin` array in `~/.config/opencode/opencode.jsonc`.
 - **Muse:** Run `muse plugins remove ai-attn`.
+- **Gemini CLI:** Remove the ai-attn hook entries from `~/.gemini/settings.json`.
+- **Antigravity CLI:** Remove the `ai-attn` group from `~/.gemini/config/hooks.json`.
+
+The uninstaller removes the files ai-attn owns outright: `~/.copilot/hooks/ai-attn.json`, `~/.grok/hooks/ai-attn.json`, and the Pi and Oh My Pi extensions.
 
 Leftover hook entries are harmless — the hook scripts always `exit 0` even if ai-attn is missing — but you can remove them for cleanliness.
 

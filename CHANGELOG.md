@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Hooks for six more agents, each wired by `ai-attn setup` and checked by
+  `ai-attn doctor`:
+  - **Gemini CLI** (`gemini`): hooks in `~/.gemini/settings.json`.
+  - **Antigravity CLI** (`agy`): an `ai-attn` group in
+    `~/.gemini/config/hooks.json`. It has no permission or session-end event,
+    so it reports working and done only.
+  - **GitHub Copilot CLI** (`copilot`): `~/.copilot/hooks/ai-attn.json`.
+    Accurate waiting needs Copilot CLI 1.0.26 or later.
+  - **Grok Build** (`grok`): `~/.grok/hooks/ai-attn.json`. Its idle reminder
+    (`idle_prompt`) is filtered out so a finished turn stays done, and Claude
+    hooks Grok runs from `~/.claude/settings.json` are recorded as `grok`.
+  - **Pi** (`pi`) and **Oh My Pi** (`omp`): TypeScript extensions copied into
+    each agent's extensions directory.
+- `ai-attn hook --event` names the event for agents whose payloads do not.
+
 ### Changed
 
 - `ai-attn setup codex` writes its hooks into `~/.codex/config.toml`, in a

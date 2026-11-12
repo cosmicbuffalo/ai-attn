@@ -646,7 +646,7 @@ func TestHookMissingAgentFlag(t *testing.T) {
 func TestHookUnknownAgent(t *testing.T) {
 	withTempHome(t)
 	var stdout, stderr bytes.Buffer
-	rc := run([]string{"hook", "--agent", "gemini"}, strings.NewReader("{}"), &stdout, &stderr)
+	rc := run([]string{"hook", "--agent", "no-such-agent"}, strings.NewReader("{}"), &stdout, &stderr)
 	if rc != exitUsage {
 		t.Fatalf("expected rc=2, got %d", rc)
 	}

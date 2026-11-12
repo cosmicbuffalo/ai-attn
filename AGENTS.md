@@ -255,6 +255,24 @@ As with Claude, `UserPromptSubmit` and `PostToolUse` run synchronously (no `asyn
 
 Muse runs short-lived background reminder sessions during and after each turn, and their tool calls fire the tool hooks under their own `session_id`. Those sessions never submit a prompt or stop, so ai-attn ignores tool events flagged `post_stop` and tool events from a session that has no record yet (every real turn opens with `UserPromptSubmit`, which writes one).
 
+## Gemini CLI, Antigravity, Copilot CLI, Grok Build, Pi, and Oh My Pi
+
+Prefer `ai-attn setup <agent>` for these. To wire one by hand:
+
+- **Gemini CLI** (`gemini`): in `~/.gemini/settings.json` (`$GEMINI_CLI_HOME/.gemini` when set), add to the `hooks` object one group per event, in Claude's shape with `timeout` in milliseconds, each running `bash ~/.local/share/ai-attn/hooks/gemini.sh` with `"timeout": 10000`: `BeforeAgent`, `AfterTool`, `Notification` (with `"matcher": "ToolPermission"`), `AfterAgent`, and `SessionEnd`. Preserve existing hooks and settings.
+- **Antigravity CLI** (`agy`): in `~/.gemini/config/hooks.json`, add a top-level group `"ai-attn": {"enabled": true, ...}` holding `PreInvocation`, `PostToolUse`, and `Stop`, each a list with one `{"type": "command", "command": "bash ~/.local/share/ai-attn/hooks/agy.sh <Event>", "timeout": 10}` (the event name is passed as an argument). Preserve other groups. Restart running agy sessions; hooks load at session start.
+- **GitHub Copilot CLI** (`copilot`): write `~/.copilot/hooks/ai-attn.json` (`$COPILOT_HOME/hooks`) as `{"version": 1, "hooks": {...}}`, with one entry `{"type": "command", "bash": "bash ~/.local/share/ai-attn/hooks/copilot.sh <event>", "timeoutSec": 10}` for each of `userPromptSubmitted`, `postToolUse`, `postToolUseFailure`, `notification` (add `"matcher": "permission_prompt|elicitation_dialog"`), `agentStop`, and `sessionEnd`.
+- **Grok Build** (`grok`): write `~/.grok/hooks/ai-attn.json` (`$GROK_HOME/hooks`) as `{"hooks": {...}}` in Claude's group shape, running `bash ~/.local/share/ai-attn/hooks/grok.sh` with `"timeout": 10` for `UserPromptSubmit`, `PostToolUse`, `PostToolUseFailure`, `Notification` (`"matcher": "permission_prompt|elicitation_dialog"`; never leave it unfiltered, or Grok's `idle_prompt` turns every finished turn into "waiting"), `Stop`, `StopCancelled`, `StopFailure`, and `SessionEnd`.
+- **Pi** (`pi`): copy `~/.local/share/ai-attn/plugins/pi/ai-attn.ts` to `~/.pi/agent/extensions/ai-attn.ts` (`$PI_CODING_AGENT_DIR/extensions`).
+- **Oh My Pi** (`omp`): copy `~/.local/share/ai-attn/plugins/omp/ai-attn.ts` to `~/.omp/agent/extensions/ai-attn.ts`.
+
+### How It Works
+
+- Gemini, Grok, Pi and Oh My Pi hooks run synchronously or are serialized by the extension, so writes land in order. Copilot's `notification` hook is fire-and-forget, so a "waiting" write that arrives after the turn's `agentStop` is dropped.
+- Grok runs Claude Code's hooks too (`[compat.claude]`). A Claude hook fired inside Grok (where `GROK_SESSION_ID` or `GROK_HOOK_EVENT` is set) is recorded as `grok`.
+- Antigravity has no permission, notification, or session-end event, so its records are only `working` or `done`. A `Stop` with `fullyIdle: false` (background tasks still running) is ignored.
+- Pi's `agent_end` is not the end of a turn; `agent_settled` is. Oh My Pi's `agent_end` with `willContinue` is likewise skipped.
+
 ## Post-Setup Verification
 
 After wiring hooks, run the following checks:

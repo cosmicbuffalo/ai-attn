@@ -47,7 +47,7 @@ var codexHookEvents = []string{
 	"Stop",
 }
 
-var allAgents = []string{"claude", "codex", "opencode", "muse", "cortex"}
+var allAgents = []string{"claude", "codex", "opencode", "muse", "cortex", "gemini", "agy", "copilot", "grok", "pi", "omp"}
 
 // parseInterspersed parses fs's flags wherever they appear in args and
 // returns the positional arguments in order. flag.FlagSet.Parse stops at the
@@ -91,7 +91,13 @@ Supported agents:
   codex     Install hooks into ~/.codex/hooks.json
   opencode  Install plugin into ~/.config/opencode/opencode.jsonc
   muse      Install plugin into Muse via 'muse plugins install'
-  cortex    Install hooks into ~/.snowflake/cortex/hooks.json`)
+  cortex    Install hooks into ~/.snowflake/cortex/hooks.json
+  gemini    Install hooks into ~/.gemini/settings.json
+  agy       Install hooks into ~/.gemini/config/hooks.json (Antigravity CLI)
+  copilot   Write ~/.copilot/hooks/ai-attn.json (GitHub Copilot CLI)
+  grok      Write ~/.grok/hooks/ai-attn.json (Grok Build)
+  pi        Write the extension ~/.pi/agent/extensions/ai-attn.ts
+  omp       Write the extension ~/.omp/agent/extensions/ai-attn.ts (Oh My Pi)`)
 	}
 	positional, err := parseInterspersed(fs, args)
 	if err != nil {
@@ -144,6 +150,18 @@ Supported agents:
 			rc = setupMuse(stdout, stderr, *dryRun)
 		case "cortex":
 			rc = setupCortex(stdout, stderr, *dryRun)
+		case "gemini":
+			rc = setupGemini(stdout, stderr, *dryRun, *force)
+		case "agy":
+			rc = setupAgy(stdout, stderr, *dryRun)
+		case "copilot":
+			rc = setupCopilot(stdout, stderr, *dryRun)
+		case "grok":
+			rc = setupGrok(stdout, stderr, *dryRun)
+		case "pi":
+			rc = setupExtension(piAgent, stdout, stderr, *dryRun)
+		case "omp":
+			rc = setupExtension(ompAgent, stdout, stderr, *dryRun)
 		}
 		if rc != exitOK {
 			exitCode = rc
@@ -167,6 +185,22 @@ func detectAgents() []string {
 	var detected []string
 	for _, c := range checks {
 		if info, err := os.Stat(c.dir); err == nil && info.IsDir() {
+			detected = append(detected, c.name)
+		}
+	}
+	more := []struct {
+		name      string
+		installed bool
+	}{
+		{"gemini", geminiInstalled()},
+		{"agy", agyInstalled()},
+		{"copilot", dirExists(copilotHome())},
+		{"grok", dirExists(grokHome())},
+		{"pi", piAgent.installed()},
+		{"omp", ompAgent.installed()},
+	}
+	for _, c := range more {
+		if c.installed {
 			detected = append(detected, c.name)
 		}
 	}

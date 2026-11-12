@@ -291,6 +291,9 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	if !checkMuse(stdout) {
 		allPassed = false
 	}
+	if !checkMoreAgentHooks(stdout) {
+		allPassed = false
+	}
 	if !checkClaudeConfigDir(stdout) {
 		allPassed = false
 	}
