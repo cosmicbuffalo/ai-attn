@@ -57,7 +57,7 @@ func TestDoctorReportsHealth(t *testing.T) {
 	if err := os.MkdirAll(codexDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(codexDir, "hooks.json"), []byte(`{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"bash /tmp/x/.local/share/ai-attn/hooks/codex.sh","timeout":10}]}]}}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(codexDir, "config.toml"), []byte("[[hooks.Stop]]\n\n[[hooks.Stop.hooks]]\ntype = \"command\"\ncommand = \"bash /tmp/x/.local/share/ai-attn/hooks/codex.sh\"\ntimeout = 10\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	opencodeDir := filepath.Join(home, ".config", "opencode")
@@ -170,8 +170,8 @@ func TestDoctorDetectsCodexWrapper(t *testing.T) {
 	os.WriteFile(wrapper, []byte(wrapperBody), 0o755)
 
 	os.MkdirAll(filepath.Join(home, ".codex"), 0o755)
-	os.WriteFile(filepath.Join(home, ".codex", "hooks.json"),
-		[]byte(`{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"bash `+wrapper+`","timeout":10}]}]}}`), 0o644)
+	os.WriteFile(filepath.Join(home, ".codex", "config.toml"),
+		[]byte("[[hooks.Stop]]\n\n[[hooks.Stop.hooks]]\ntype = \"command\"\ncommand = \"bash "+wrapper+"\"\ntimeout = 10\n"), 0o644)
 
 	rc, stdout, _ := runCLI(t, "doctor")
 	if rc != exitOK {
@@ -193,8 +193,8 @@ func TestDoctorDoesNotFollowUnrelatedScripts(t *testing.T) {
 	os.WriteFile(unrelated, []byte("#!/usr/bin/env bash\necho hi\n"), 0o755)
 
 	os.MkdirAll(filepath.Join(home, ".codex"), 0o755)
-	os.WriteFile(filepath.Join(home, ".codex", "hooks.json"),
-		[]byte(`{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"bash `+unrelated+`","timeout":10}]}]}}`), 0o644)
+	os.WriteFile(filepath.Join(home, ".codex", "config.toml"),
+		[]byte("[[hooks.Stop]]\n\n[[hooks.Stop.hooks]]\ntype = \"command\"\ncommand = \"bash "+unrelated+"\"\ntimeout = 10\n"), 0o644)
 
 	rc, stdout, _ := runCLI(t, "doctor")
 	if rc != exitError {

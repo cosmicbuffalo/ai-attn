@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-12
+
+### Added
+
+- Hooks for six more agents, each wired by `ai-attn setup` and checked by
+  `ai-attn doctor`:
+  - **Gemini CLI** (`gemini`): hooks in `~/.gemini/settings.json`.
+  - **Antigravity CLI** (`agy`): an `ai-attn` group in
+    `~/.gemini/config/hooks.json`. It has no permission or session-end event,
+    so it reports working and done only.
+  - **GitHub Copilot CLI** (`copilot`): `~/.copilot/hooks/ai-attn.json`.
+    Accurate waiting needs Copilot CLI 1.0.26 or later.
+  - **Grok Build** (`grok`): `~/.grok/hooks/ai-attn.json`. Its idle reminder
+    (`idle_prompt`) is filtered out so a finished turn stays done, and Claude
+    hooks Grok runs from `~/.claude/settings.json` are recorded as `grok`.
+  - **Pi** (`pi`) and **Oh My Pi** (`omp`): TypeScript extensions copied into
+    each agent's extensions directory.
+- `ai-attn hook --event` names the event for agents whose payloads do not.
+
+### Changed
+
+- `ai-attn setup codex` writes its hooks into `~/.codex/config.toml`, in a
+  block between `# ai-attn Codex hooks begin` and `# ai-attn Codex hooks end`,
+  instead of `~/.codex/hooks.json`. Codex warned ("loading hooks from both
+  ...") when other tools, such as peon-ping, kept their hooks in
+  `config.toml`. Setup moves existing ai-attn hooks out of `hooks.json`
+  (deleting it if nothing else is left) and leaves the file's comments and
+  other hooks untouched. Codex asks for the moved hooks to be approved once.
+- `ai-attn doctor` checks Codex hooks in `config.toml`, reports hooks still in
+  `hooks.json` as `outdated`, and no longer mistakes current hooks for a
+  legacy `notify` entry.
+
+### Notes
+
+- There is still no Codex signal before the first prompt. Codex (as of 0.166)
+  runs `SessionStart` only when the first prompt creates the session, not
+  when an idle launch or `codex resume` reaches the prompt, so a startup hook
+  cannot report readiness. Tools such as pmux keep reporting an idle, freshly
+  launched Codex as not yet confirmed ready.
+
 ## [0.5.0] - 2026-11-02
 
 ### Added
@@ -201,6 +241,8 @@ Initial public release.
 - CI pipeline with formatting, linting, and test checks
 - Automated multi-platform release builds via GitHub Actions
 
+[0.6.0]: https://github.com/cosmicbuffalo/ai-attn/releases/tag/v0.6.0
+[0.5.0]: https://github.com/cosmicbuffalo/ai-attn/releases/tag/v0.5.0
 [0.4.1]: https://github.com/cosmicbuffalo/ai-attn/releases/tag/v0.4.1
 [0.4.0]: https://github.com/cosmicbuffalo/ai-attn/releases/tag/v0.4.0
 [0.3.3]: https://github.com/cosmicbuffalo/ai-attn/releases/tag/v0.3.3

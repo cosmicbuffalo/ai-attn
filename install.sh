@@ -271,13 +271,19 @@ download_file() {
 
 # Install hooks and support scripts
 install_scripts() {
-  mkdir -p "$PLUGIN_DIR" "$MUSE_PLUGIN_DIR/.muse-plugin" "$MUSE_PLUGIN_DIR/hooks"
+  mkdir -p "$PLUGIN_DIR" "$MUSE_PLUGIN_DIR/.muse-plugin" "$MUSE_PLUGIN_DIR/hooks" \
+    "$INSTALL_DIR/plugins/pi" "$INSTALL_DIR/plugins/omp"
   if [ "$FROM_REPO" -eq 1 ]; then
     install -m 0755 "$SCRIPT_DIR/hooks/_common.sh" "$INSTALL_DIR/hooks/_common.sh"
     install -m 0755 "$SCRIPT_DIR/hooks/claude.sh" "$INSTALL_DIR/hooks/claude.sh"
     install -m 0755 "$SCRIPT_DIR/hooks/codex.sh" "$INSTALL_DIR/hooks/codex.sh"
     install -m 0755 "$SCRIPT_DIR/hooks/opencode.sh" "$INSTALL_DIR/hooks/opencode.sh"
     install -m 0755 "$SCRIPT_DIR/hooks/cortex.sh" "$INSTALL_DIR/hooks/cortex.sh"
+    for hook in gemini.sh agy.sh copilot.sh grok.sh; do
+      install -m 0755 "$SCRIPT_DIR/hooks/$hook" "$INSTALL_DIR/hooks/$hook"
+    done
+    install -m 0644 "$SCRIPT_DIR/plugins/pi/ai-attn.ts" "$INSTALL_DIR/plugins/pi/ai-attn.ts"
+    install -m 0644 "$SCRIPT_DIR/plugins/omp/ai-attn.ts" "$INSTALL_DIR/plugins/omp/ai-attn.ts"
     install -m 0644 "$SCRIPT_DIR/plugins/opencode/index.mjs" "$PLUGIN_DIR/index.mjs"
     install -m 0644 "$SCRIPT_DIR/plugins/opencode/package.json" "$PLUGIN_DIR/package.json"
     install -m 0644 "$SCRIPT_DIR/plugins/muse/.muse-plugin/plugin.json" "$MUSE_PLUGIN_DIR/.muse-plugin/plugin.json"
@@ -292,11 +298,13 @@ install_scripts() {
     install -m 0755 "$SCRIPT_DIR/plugins/muse/hooks/session_end.sh" "$MUSE_PLUGIN_DIR/hooks/session_end.sh"
     install -m 0755 "$SCRIPT_DIR/uninstall.sh" "$INSTALL_DIR/uninstall.sh"
   else
-    for hook in _common.sh claude.sh codex.sh opencode.sh cortex.sh; do
+    for hook in _common.sh claude.sh codex.sh opencode.sh cortex.sh gemini.sh agy.sh copilot.sh grok.sh; do
       download_file "$INSTALL_DIR/hooks/$hook" "hooks/$hook"
       chmod +x "$INSTALL_DIR/hooks/$hook"
     done
     download_file "$PLUGIN_DIR/index.mjs" "plugins/opencode/index.mjs"
+    download_file "$INSTALL_DIR/plugins/pi/ai-attn.ts" "plugins/pi/ai-attn.ts"
+    download_file "$INSTALL_DIR/plugins/omp/ai-attn.ts" "plugins/omp/ai-attn.ts"
     download_file "$PLUGIN_DIR/package.json" "plugins/opencode/package.json"
     download_file "$MUSE_PLUGIN_DIR/.muse-plugin/plugin.json" "plugins/muse/.muse-plugin/plugin.json"
     for hook in _common.sh user_prompt_submit.sh permission_request.sh notification.sh post_tool_use.sh post_tool_use_failure.sh stop.sh stop_failure.sh session_end.sh; do

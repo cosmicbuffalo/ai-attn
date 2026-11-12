@@ -47,7 +47,7 @@ var codexHookEvents = []string{
 	"Stop",
 }
 
-var allAgents = []string{"claude", "codex", "opencode", "muse", "cortex"}
+var allAgents = []string{"claude", "codex", "opencode", "muse", "cortex", "gemini", "agy", "copilot", "grok", "pi", "omp"}
 
 // parseInterspersed parses fs's flags wherever they appear in args and
 // returns the positional arguments in order. flag.FlagSet.Parse stops at the
@@ -91,7 +91,13 @@ Supported agents:
   codex     Install hooks into ~/.codex/hooks.json
   opencode  Install plugin into ~/.config/opencode/opencode.jsonc
   muse      Install plugin into Muse via 'muse plugins install'
-  cortex    Install hooks into ~/.snowflake/cortex/hooks.json`)
+  cortex    Install hooks into ~/.snowflake/cortex/hooks.json
+  gemini    Install hooks into ~/.gemini/settings.json
+  agy       Install hooks into ~/.gemini/config/hooks.json (Antigravity CLI)
+  copilot   Write ~/.copilot/hooks/ai-attn.json (GitHub Copilot CLI)
+  grok      Write ~/.grok/hooks/ai-attn.json (Grok Build)
+  pi        Write the extension ~/.pi/agent/extensions/ai-attn.ts
+  omp       Write the extension ~/.omp/agent/extensions/ai-attn.ts (Oh My Pi)`)
 	}
 	positional, err := parseInterspersed(fs, args)
 	if err != nil {
@@ -144,6 +150,18 @@ Supported agents:
 			rc = setupMuse(stdout, stderr, *dryRun)
 		case "cortex":
 			rc = setupCortex(stdout, stderr, *dryRun)
+		case "gemini":
+			rc = setupGemini(stdout, stderr, *dryRun, *force)
+		case "agy":
+			rc = setupAgy(stdout, stderr, *dryRun)
+		case "copilot":
+			rc = setupCopilot(stdout, stderr, *dryRun)
+		case "grok":
+			rc = setupGrok(stdout, stderr, *dryRun)
+		case "pi":
+			rc = setupExtension(piAgent, stdout, stderr, *dryRun)
+		case "omp":
+			rc = setupExtension(ompAgent, stdout, stderr, *dryRun)
 		}
 		if rc != exitOK {
 			exitCode = rc
@@ -167,6 +185,22 @@ func detectAgents() []string {
 	var detected []string
 	for _, c := range checks {
 		if info, err := os.Stat(c.dir); err == nil && info.IsDir() {
+			detected = append(detected, c.name)
+		}
+	}
+	more := []struct {
+		name      string
+		installed bool
+	}{
+		{"gemini", geminiInstalled()},
+		{"agy", agyInstalled()},
+		{"copilot", dirExists(copilotHome())},
+		{"grok", dirExists(grokHome())},
+		{"pi", piAgent.installed()},
+		{"omp", ompAgent.installed()},
+	}
+	for _, c := range more {
+		if c.installed {
 			detected = append(detected, c.name)
 		}
 	}
@@ -336,6 +370,17 @@ func setupClaude(stdout, stderr io.Writer, dryRun bool) int {
 	return exitOK
 }
 
+// codexBlockBegin and codexBlockEnd mark the ai-attn hooks in Codex's
+// config.toml. Setup rewrites only the text between them, so comments and
+// other tools' hooks (such as a peon-ping block) are left untouched.
+const (
+	codexBlockBegin = "# ai-attn Codex hooks begin"
+	codexBlockEnd   = "# ai-attn Codex hooks end"
+)
+
+// setupCodex writes ai-attn's hooks into ~/.codex/config.toml. Earlier
+// versions wrote them to ~/.codex/hooks.json; those entries are moved, since
+// Codex warns when hooks come from both files.
 func setupCodex(stdout, stderr io.Writer, dryRun, force bool) int {
 	hooksPath := filepath.Join(homeDir(), ".codex", "hooks.json")
 	configPath := filepath.Join(homeDir(), ".codex", "config.toml")
@@ -343,86 +388,216 @@ func setupCodex(stdout, stderr io.Writer, dryRun, force bool) int {
 	hookCmd := "bash " + shellQuote(hookPath)
 
 	if !dryRun {
-		if err := os.MkdirAll(filepath.Dir(hooksPath), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 			fmt.Fprintf(stderr, "failed to create directory: %v\n", err)
 			return exitError
 		}
 	}
 
-	var settings map[string]any
-	data, err := os.ReadFile(hooksPath)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			fmt.Fprintf(stderr, "failed to read %s: %v\n", hooksPath, err)
-			return exitError
-		}
-		settings = map[string]any{}
-	} else {
-		if err := json.Unmarshal(data, &settings); err != nil {
-			fmt.Fprintf(stderr, "failed to parse %s: %v\n", hooksPath, err)
-			return exitError
-		}
-	}
-
-	hooks, _ := settings["hooks"].(map[string]any)
-	if hooks == nil {
-		hooks = map[string]any{}
-	}
-
-	for event, val := range hooks {
-		hooks[event] = removeCodexAiAttnEntries(val)
-	}
-
-	for _, event := range codexHookEvents {
-		matcher := map[string]any{
-			"matcher": "",
-			"hooks": []any{map[string]any{
-				"type":          "command",
-				"command":       hookCmd,
-				"timeout":       10,
-				"statusMessage": "Updating ai-attn",
-			}},
-		}
-		existing, _ := hooks[event].([]any)
-		hooks[event] = append(existing, matcher)
-	}
-	settings["hooks"] = hooks
-
-	out, err := json.MarshalIndent(settings, "", "  ")
-	if err != nil {
-		fmt.Fprintf(stderr, "failed to marshal settings: %v\n", err)
+	data, err := os.ReadFile(configPath)
+	if err != nil && !os.IsNotExist(err) {
+		fmt.Fprintf(stderr, "failed to read %s: %v\n", configPath, err)
 		return exitError
 	}
-	out = append(out, '\n')
+	if _, err := toml.Decode(string(data), new(map[string]any)); err != nil {
+		fmt.Fprintf(stderr, "failed to parse %s: %v\n", configPath, err)
+		return exitError
+	}
 
-	cleanup, cleanupChanged, cleanupErr := cleanupLegacyCodexConfig(configPath, force)
-	if cleanupErr != nil {
+	// Drop the previous block first, so the legacy cleanup below (which
+	// re-encodes the file) never sees ai-attn's hooks as plain data.
+	config := []byte(removeCodexBlock(string(data)))
+	if cleaned, changed, cleanupErr := cleanupLegacyCodexConfig(config, configPath, force); cleanupErr != nil {
 		fmt.Fprintln(stderr, cleanupErr)
+		return exitError
+	} else if changed {
+		config = cleaned
+	}
+	legacyCleaned := string(config) != removeCodexBlock(string(data))
+
+	updated := appendCodexBlock(string(config), codexHooksBlock(hookCmd))
+	if _, err := toml.Decode(updated, new(map[string]any)); err != nil {
+		fmt.Fprintf(stderr, "codex: refusing to write %s: the result would not parse (%v)\n", configPath, err)
+		fmt.Fprintln(stderr, "  Its existing hooks may be in a form ai-attn's [[hooks.<Event>]] tables cannot extend.")
+		return exitError
+	}
+
+	migrated, hooksJSON, removeHooksJSON, migrateErr := migrateCodexHooksJSON(hooksPath)
+	if migrateErr != nil {
+		fmt.Fprintln(stderr, migrateErr)
 		return exitError
 	}
 
 	if dryRun {
-		fmt.Fprintf(stdout, "codex: would install %d hooks in %s (dry-run)\n",
-			len(codexHookEvents), hooksPath)
-		if cleanupChanged {
+		fmt.Fprintf(stdout, "codex: would install %d hooks in %s (dry-run)\n", len(codexHookEvents), configPath)
+		if legacyCleaned {
 			fmt.Fprintf(stdout, "codex: would remove legacy ai-attn notify from %s (dry-run)\n", configPath)
+		}
+		if migrated {
+			fmt.Fprintf(stdout, "codex: would move ai-attn hooks out of %s (dry-run)\n", hooksPath)
 		}
 		return exitOK
 	}
 
-	if err := os.WriteFile(hooksPath, out, 0o644); err != nil {
-		fmt.Fprintf(stderr, "failed to write %s: %v\n", hooksPath, err)
+	if err := os.WriteFile(configPath, []byte(updated), 0o644); err != nil {
+		fmt.Fprintf(stderr, "failed to write %s: %v\n", configPath, err)
 		return exitError
 	}
-	if cleanupChanged {
-		if err := os.WriteFile(configPath, cleanup, 0o644); err != nil {
-			fmt.Fprintf(stderr, "failed to write %s: %v\n", configPath, err)
+	if migrated {
+		if removeHooksJSON {
+			err = os.Remove(hooksPath)
+		} else {
+			err = os.WriteFile(hooksPath, hooksJSON, 0o644)
+		}
+		if err != nil {
+			fmt.Fprintf(stderr, "failed to update %s: %v\n", hooksPath, err)
 			return exitError
 		}
 	}
 
-	fmt.Fprintf(stdout, "codex: installed %d hooks in %s\n", len(codexHookEvents), hooksPath)
+	fmt.Fprintf(stdout, "codex: installed %d hooks in %s\n", len(codexHookEvents), configPath)
+	if migrated {
+		fmt.Fprintf(stdout, "codex: moved ai-attn hooks out of %s\n", hooksPath)
+	}
+	fmt.Fprintln(stdout, "codex: approve the hooks in Codex (/hooks) if it asks; Codex skips hooks it has not approved")
 	return exitOK
+}
+
+// codexHooksBlock renders ai-attn's hooks as config.toml array tables,
+// between the block markers. Codex reads the same fields as in hooks.json.
+func codexHooksBlock(hookCmd string) string {
+	var b strings.Builder
+	b.WriteString(codexBlockBegin + "\n")
+	for i, event := range codexHookEvents {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		fmt.Fprintf(&b, "[[hooks.%s]]\nmatcher = \"\"\n\n", event)
+		fmt.Fprintf(&b, "[[hooks.%s.hooks]]\n", event)
+		fmt.Fprintf(&b, "type = \"command\"\ncommand = %s\ntimeout = 10\nstatusMessage = \"Updating ai-attn\"\n", tomlString(hookCmd))
+	}
+	b.WriteString(codexBlockEnd + "\n")
+	return b.String()
+}
+
+// removeCodexBlock returns content without ai-attn's marked block.
+func removeCodexBlock(content string) string {
+	begin := strings.Index(content, codexBlockBegin)
+	if begin < 0 {
+		return content
+	}
+	end := strings.Index(content[begin:], codexBlockEnd)
+	if end < 0 {
+		return content
+	}
+	end += begin + len(codexBlockEnd)
+	if end < len(content) && content[end] == '\n' {
+		end++
+	}
+	before := strings.TrimRight(content[:begin], "\n")
+	after := content[end:]
+	if before == "" {
+		return strings.TrimLeft(after, "\n")
+	}
+	if strings.TrimSpace(after) == "" {
+		return before + "\n"
+	}
+	return before + "\n\n" + strings.TrimLeft(after, "\n")
+}
+
+// appendCodexBlock appends block at the end of content. Array tables must
+// come after any plain keys, and the end of the file is the one place where
+// a new table cannot capture keys that belong to another.
+func appendCodexBlock(content, block string) string {
+	content = strings.TrimRight(content, "\n")
+	if content == "" {
+		return block
+	}
+	return content + "\n\n" + block
+}
+
+// tomlString quotes s as a TOML basic string.
+func tomlString(s string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range s {
+		switch {
+		case r == '"' || r == '\\':
+			b.WriteByte('\\')
+			b.WriteRune(r)
+		case r < 0x20 || r == 0x7f:
+			fmt.Fprintf(&b, "\\u%04X", r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
+}
+
+// migrateCodexHooksJSON removes ai-attn's entries from a hooks.json written
+// by an earlier setup. It returns whether anything was removed, the new file
+// contents, and whether the file should be deleted because nothing is left.
+func migrateCodexHooksJSON(hooksPath string) (bool, []byte, bool, error) {
+	data, err := os.ReadFile(hooksPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil, false, nil
+		}
+		return false, nil, false, fmt.Errorf("failed to read %s: %v", hooksPath, err)
+	}
+	var settings map[string]any
+	if err := json.Unmarshal(data, &settings); err != nil {
+		return false, nil, false, fmt.Errorf("failed to parse %s: %v", hooksPath, err)
+	}
+	hooks, _ := settings["hooks"].(map[string]any)
+	removed := false
+	for event, val := range hooks {
+		before := len(flattenHookCommands(val))
+		kept := removeCodexAiAttnEntries(val)
+		if len(flattenHookCommands(kept)) != before {
+			removed = true
+		}
+		if len(kept) == 0 {
+			delete(hooks, event)
+		} else {
+			hooks[event] = kept
+		}
+	}
+	if !removed {
+		return false, nil, false, nil
+	}
+	if len(hooks) == 0 {
+		delete(settings, "hooks")
+	}
+	if len(settings) == 0 {
+		return true, nil, true, nil
+	}
+	out, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return false, nil, false, fmt.Errorf("failed to marshal %s: %v", hooksPath, err)
+	}
+	return true, append(out, '\n'), false, nil
+}
+
+// flattenHookCommands lists the commands in one event's hook groups.
+func flattenHookCommands(eventEntry any) []string {
+	var commands []string
+	groups, _ := eventEntry.([]any)
+	for _, g := range groups {
+		group, _ := g.(map[string]any)
+		if command, ok := group["command"].(string); ok {
+			commands = append(commands, command)
+		}
+		hooks, _ := group["hooks"].([]any)
+		for _, h := range hooks {
+			hook, _ := h.(map[string]any)
+			if command, ok := hook["command"].(string); ok {
+				commands = append(commands, command)
+			}
+		}
+	}
+	return commands
 }
 
 func setupOpencode(stdout, stderr io.Writer, dryRun, force bool) int {
@@ -729,13 +904,13 @@ func codexCommandIsAiAttn(command string) bool {
 		strings.Contains(command, "ai-attn hook --agent codex")
 }
 
-func cleanupLegacyCodexConfig(configPath string, force bool) ([]byte, bool, error) {
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, false, nil
-		}
-		return nil, false, fmt.Errorf("failed to read %s: %v", configPath, err)
+// cleanupLegacyCodexConfig removes settings left by pre-hooks versions of
+// ai-attn from config.toml's contents (data). It re-encodes the file, so it
+// returns changed=false, and the caller keeps data as is, when there is
+// nothing to remove.
+func cleanupLegacyCodexConfig(data []byte, configPath string, force bool) ([]byte, bool, error) {
+	if len(data) == 0 {
+		return nil, false, nil
 	}
 
 	var config map[string]any

@@ -53,25 +53,37 @@ func expectDoctor(t *testing.T, wantRC int, want ...string) string {
 	return stdout
 }
 
-// codexHooksJSON wires ai-attn for two events, PermissionRequest behind an
-// unrelated hook so its index within the group is 1.
-const codexHooksJSON = `{"hooks":{
-  "PermissionRequest":[{"matcher":"","hooks":[
-    {"type":"command","command":"notify-me"},
-    {"type":"command","command":"bash '/x/.local/share/ai-attn/hooks/codex.sh'"}]}],
-  "PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"bash '/x/.local/share/ai-attn/hooks/codex.sh'"}]}]
-}}`
+// codexHooksTOML wires ai-attn for two events in config.toml, PermissionRequest
+// behind an unrelated hook so its index within the group is 1.
+const codexHooksTOML = `
+[[hooks.PermissionRequest]]
+matcher = ""
 
-func writeCodex(t *testing.T, home, configTOML string) string {
+[[hooks.PermissionRequest.hooks]]
+type = "command"
+command = "notify-me"
+
+[[hooks.PermissionRequest.hooks]]
+type = "command"
+command = "bash '/x/.local/share/ai-attn/hooks/codex.sh'"
+
+[[hooks.PreToolUse]]
+matcher = ""
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "bash '/x/.local/share/ai-attn/hooks/codex.sh'"
+`
+
+// writeCodex writes config.toml with ai-attn's hooks plus extra (trust state,
+// with HOOKS standing for the config.toml path), and returns that path.
+func writeCodex(t *testing.T, home, extra string) string {
 	t.Helper()
 	dir := filepath.Join(home, ".codex")
 	mustMkdir(t, dir)
-	hooksPath := filepath.Join(dir, "hooks.json")
-	mustWrite(t, hooksPath, codexHooksJSON)
-	if configTOML != "" {
-		mustWrite(t, filepath.Join(dir, "config.toml"), strings.ReplaceAll(configTOML, "HOOKS", hooksPath))
-	}
-	return hooksPath
+	configPath := filepath.Join(dir, "config.toml")
+	mustWrite(t, configPath, codexHooksTOML+strings.ReplaceAll(extra, "HOOKS", configPath))
+	return configPath
 }
 
 func TestDoctorFlagsUntrustedCodexHooks(t *testing.T) {
@@ -121,15 +133,67 @@ func TestDoctorSkipsCodexTrustOnOlderCodex(t *testing.T) {
 	expectDoctor(t, exitOK, "hook_codex=installed\n")
 }
 
+// Hooks still in hooks.json from an older setup are reported, with how to
+// move them.
+func TestDoctorFlagsCodexHooksStillInHooksJSON(t *testing.T) {
+	home := doctorHome(t)
+	dir := filepath.Join(home, ".codex")
+	mustMkdir(t, dir)
+	mustWrite(t, filepath.Join(dir, "hooks.json"), `{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"bash '/x/.local/share/ai-attn/hooks/codex.sh'"}]}]}}`)
+
+	expectDoctor(t, exitError, "hook_codex=outdated", "ai-attn setup codex", "Some checks failed.")
+}
+
+// Current hooks in config.toml are not mistaken for a legacy notify entry,
+// which lives in the same file.
+func TestDoctorDoesNotReportConfigTOMLHooksAsLegacyNotify(t *testing.T) {
+	home := doctorHome(t)
+	writeCodex(t, home, "")
+	codexVersion = func() string { return "codex-cli 0.162.1" }
+
+	out := expectDoctor(t, exitOK, "hook_codex=installed")
+	if strings.Contains(out, "legacy_notify") {
+		t.Fatalf("hooks reported as legacy notify:\n%s", out)
+	}
+}
+
+// Trust keys count groups within config.toml, so ai-attn's block after
+// another tool's hooks for the same event is group 1.
+func TestDoctorCountsCodexGroupsAfterOtherHooks(t *testing.T) {
+	home := doctorHome(t)
+	dir := filepath.Join(home, ".codex")
+	mustMkdir(t, dir)
+	configPath := filepath.Join(dir, "config.toml")
+	mustWrite(t, configPath, `
+[[hooks.Stop]]
+
+[[hooks.Stop.hooks]]
+type = "command"
+command = "peon.sh"
+
+[[hooks.Stop]]
+
+[[hooks.Stop.hooks]]
+type = "command"
+command = "bash '/x/.local/share/ai-attn/hooks/codex.sh'"
+
+[hooks.state."`+configPath+`:stop:0:0"]
+trusted_hash = "sha256:peon"
+`)
+	codexVersion = func() string { return "codex-cli 0.163.0" }
+
+	expectDoctor(t, exitError, "hook_codex=untrusted (Codex has not approved 1 of 1", "stop:1:0")
+}
+
 func TestDoctorHonorsCodexHome(t *testing.T) {
 	home := doctorHome(t)
 	alt := filepath.Join(home, "alt-codex")
 	mustMkdir(t, alt)
-	mustWrite(t, filepath.Join(alt, "hooks.json"), codexHooksJSON)
+	mustWrite(t, filepath.Join(alt, "config.toml"), codexHooksTOML)
 	t.Setenv("CODEX_HOME", alt)
 	codexVersion = func() string { return "codex-cli 0.163.0" }
 
-	expectDoctor(t, exitError, "hook_codex=untrusted", filepath.Join(alt, "hooks.json"))
+	expectDoctor(t, exitError, "hook_codex=untrusted", filepath.Join(alt, "config.toml"))
 }
 
 func TestDoctorFlagsCommentedOutOpencodePlugin(t *testing.T) {

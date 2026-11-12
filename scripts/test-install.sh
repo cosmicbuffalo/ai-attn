@@ -25,13 +25,17 @@ mkdir -p \
   "$source_dir/hooks" \
   "$source_dir/plugins/opencode" \
   "$source_dir/plugins/muse/.muse-plugin" \
-  "$source_dir/plugins/muse/hooks"
+  "$source_dir/plugins/muse/hooks" \
+  "$source_dir/plugins/pi" \
+  "$source_dir/plugins/omp"
 cp "$repo_root/install.sh" "$runner_dir/install.sh"
 cp "$repo_root/hooks/"*.sh "$source_dir/hooks/"
 cp "$repo_root/plugins/opencode/index.mjs" "$source_dir/plugins/opencode/index.mjs"
 cp "$repo_root/plugins/opencode/package.json" "$source_dir/plugins/opencode/package.json"
 cp "$repo_root/plugins/muse/.muse-plugin/plugin.json" "$source_dir/plugins/muse/.muse-plugin/plugin.json"
 cp "$repo_root/plugins/muse/hooks/"*.sh "$source_dir/plugins/muse/hooks/"
+cp "$repo_root/plugins/pi/ai-attn.ts" "$source_dir/plugins/pi/ai-attn.ts"
+cp "$repo_root/plugins/omp/ai-attn.ts" "$source_dir/plugins/omp/ai-attn.ts"
 cp "$repo_root/uninstall.sh" "$source_dir/uninstall.sh"
 
 asset="ai-attn-${platform}"
@@ -99,6 +103,8 @@ test -x "$good_home/.local/share/ai-attn/bin/ai-attn"
 test -L "$good_home/.local/bin/ai-attn"
 test "$("$good_home/.local/bin/ai-attn" version)" = "ai-attn v0.3.2"
 grep -Fq "/v0.3.2/hooks/codex.sh" "$tmp_dir/urls.log"
+grep -Fq "/v0.3.2/hooks/copilot.sh" "$tmp_dir/urls.log"
+grep -Fq "/v0.3.2/plugins/pi/ai-attn.ts" "$tmp_dir/urls.log"
 if grep -Fq "/main/" "$tmp_dir/urls.log"; then
   echo "latest install fetched mutable main support files" >&2
   exit 1

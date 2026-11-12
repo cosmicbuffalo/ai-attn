@@ -14,7 +14,8 @@ import (
 func cmdHook(args []string, stdin io.Reader, _, stderr io.Writer) int {
 	fs := flag.NewFlagSet("hook", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	agent := fs.String("agent", "", "Agent type: claude, codex, opencode, muse, or cortex")
+	agent := fs.String("agent", "", "Agent type: "+strings.Join(allAgents, ", "))
+	event := fs.String("event", "", "Event name, for agents whose payload does not carry one (copilot, agy)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitOK
@@ -47,6 +48,16 @@ func cmdHook(args []string, stdin io.Reader, _, stderr io.Writer) int {
 		return hookOpencode(input, stderr)
 	case "muse":
 		return hookMuse(input, stderr)
+	case "gemini":
+		return hookGemini(input, stderr)
+	case "agy":
+		return hookAgy(input, *event, stderr)
+	case "copilot":
+		return hookCopilot(input, *event, stderr)
+	case "grok":
+		return hookGrok(input, stderr)
+	case "pi", "omp":
+		return hookExtension(*agent, input, stderr)
 	default:
 		fmt.Fprintf(stderr, "hook: unknown agent %q\n", *agent)
 		return exitUsage
@@ -57,6 +68,11 @@ func cmdHook(args []string, stdin io.Reader, _, stderr io.Writer) int {
 // Cortex Code runs Claude Code's hooks too (it imports ~/.claude/settings.json),
 // so a Claude hook fired inside a Cortex Code process is recorded as cortex.
 func hookClaude(hookPayload string, stderr io.Writer) int {
+	// Grok Build runs Claude Code's hooks from ~/.claude/settings.json by
+	// default, so a Claude hook can fire inside a Grok session.
+	if runningInGrok() {
+		return hookGrok(hookPayload, stderr)
+	}
 	agent := "claude"
 	if runningInCortex() {
 		agent = "cortex"

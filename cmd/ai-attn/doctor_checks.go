@@ -212,18 +212,18 @@ func versionAtLeast(output string, min [3]int) bool {
 	return true
 }
 
-// codexUntrustedHooks lists ai-attn's hooks in hooks.json that have no trust
-// entry in config.toml. Codex keys each approval as
-// "<hooks.json path>:<event_snake_case>:<group index>:<hook index>" under
+// codexUntrustedHooks lists ai-attn's hooks in hooksPath (config.toml, or
+// hooks.json from older setups) that have no trust entry in config.toml. Codex keys each approval as
+// "<hooks file path>:<event_snake_case>:<group index>:<hook index>" under
 // [hooks.state]. The trusted_hash itself is Codex's own digest and is not
 // recomputed here, so a hook edited after approval is not detected.
 //
 // Trust is required when Codex is new enough to enforce it, or when
 // config.toml already records approvals (Codex version unknown).
 func codexUntrustedHooks(hooksPath string, hooksData []byte, via string) (missing []string, total int, required, versionKnown bool, err error) {
-	var settings map[string]any
-	if err := json.Unmarshal(hooksData, &settings); err != nil {
-		return nil, 0, false, false, fmt.Errorf("parse %s: %w", hooksPath, err)
+	events, err := codexHookGroups(hooksPath, hooksData)
+	if err != nil {
+		return nil, 0, false, false, err
 	}
 	isAiAttn := func(command string) bool {
 		if codexCommandIsAiAttn(command) {
@@ -242,19 +242,14 @@ func codexUntrustedHooks(hooksPath string, hooksData []byte, via string) (missin
 	}
 
 	var keys []string
-	events, _ := settings["hooks"].(map[string]any)
 	eventNames := make([]string, 0, len(events))
 	for event := range events {
 		eventNames = append(eventNames, event)
 	}
 	sort.Strings(eventNames)
 	for _, event := range eventNames {
-		groups, _ := events[event].([]any)
-		for i, g := range groups {
-			group, _ := g.(map[string]any)
-			hooks, _ := group["hooks"].([]any)
-			for j, h := range hooks {
-				hook, _ := h.(map[string]any)
+		for i, group := range events[event] {
+			for j, hook := range asMaps(group["hooks"]) {
 				command, _ := hook["command"].(string)
 				if isAiAttn(command) {
 					keys = append(keys, fmt.Sprintf("%s:%s:%d:%d", hooksPath, snakeCase(event), i, j))
@@ -293,6 +288,46 @@ func codexUntrustedHooks(hooksPath string, hooksData []byte, via string) (missin
 		}
 	}
 	return missing, len(keys), required, versionKnown, nil
+}
+
+// codexHookGroups returns the hook groups per event in a Codex hooks file:
+// hooks.json, or the [[hooks.<Event>]] tables in config.toml (where the
+// [hooks.state] approvals table is not an event).
+func codexHookGroups(path string, data []byte) (map[string][]map[string]any, error) {
+	var root map[string]any
+	if strings.HasSuffix(path, ".toml") {
+		if _, err := toml.Decode(string(data), &root); err != nil {
+			return nil, fmt.Errorf("parse %s: %w", path, err)
+		}
+	} else if err := json.Unmarshal(data, &root); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	hooks, _ := root["hooks"].(map[string]any)
+	events := map[string][]map[string]any{}
+	for event, val := range hooks {
+		if event == "state" {
+			continue
+		}
+		events[event] = asMaps(val)
+	}
+	return events, nil
+}
+
+// asMaps returns v's elements that are tables, whether v was decoded from
+// JSON ([]any) or from TOML array tables ([]map[string]any).
+func asMaps(v any) []map[string]any {
+	switch list := v.(type) {
+	case []map[string]any:
+		return list
+	case []any:
+		out := make([]map[string]any, 0, len(list))
+		for _, item := range list {
+			m, _ := item.(map[string]any)
+			out = append(out, m)
+		}
+		return out
+	}
+	return nil
 }
 
 // snakeCase turns a Codex hook event name (PreToolUse) into the form Codex
