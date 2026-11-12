@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-12
+
 ### Added
 
 - Hooks for six more agents, each wired by `ai-attn setup` and checked by
@@ -239,6 +241,8 @@ Initial public release.
 - CI pipeline with formatting, linting, and test checks
 - Automated multi-platform release builds via GitHub Actions
 
+[0.6.0]: https://github.com/cosmicbuffalo/ai-attn/releases/tag/v0.6.0
+[0.5.0]: https://github.com/cosmicbuffalo/ai-attn/releases/tag/v0.5.0
 [0.4.1]: https://github.com/cosmicbuffalo/ai-attn/releases/tag/v0.4.1
 [0.4.0]: https://github.com/cosmicbuffalo/ai-attn/releases/tag/v0.4.0
 [0.3.3]: https://github.com/cosmicbuffalo/ai-attn/releases/tag/v0.3.3
