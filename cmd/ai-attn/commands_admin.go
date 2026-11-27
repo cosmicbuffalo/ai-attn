@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -184,6 +185,21 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 
 	fmt.Fprintf(stdout, "enabled=%t\n", cfg.Enabled)
 	fmt.Fprintf(stdout, "ttl_seconds=%d\n", cfg.TTLSeconds)
+	fmt.Fprintf(stdout, "osc7501=%t\n", cfg.OSC7501)
+	if cfg.OSC7501Agents == nil {
+		fmt.Fprintf(stdout, "osc7501_agents=%s (default)\n", strings.Join(defaultOSC7501Agents(), ","))
+	} else {
+		fmt.Fprintf(stdout, "osc7501_agents=%s\n", strings.Join(cfg.OSC7501Agents, ","))
+		var unknown []string
+		for _, agent := range cfg.OSC7501Agents {
+			if !slices.Contains(allAgents, agent) {
+				unknown = append(unknown, agent)
+			}
+		}
+		if len(unknown) > 0 {
+			fmt.Fprintf(stdout, "osc7501_agents_unknown=%s\n", strings.Join(unknown, ","))
+		}
+	}
 
 	if err := os.MkdirAll(stateDir(), 0o755); err != nil {
 		fmt.Fprintf(stdout, "state_dir_status=error (%s)\n", err)
@@ -411,7 +427,7 @@ func cmdInitConfig(stdout, stderr io.Writer) int {
 
 // defaultConfigTOML is what `init-config` writes when no config file exists.
 // Values match defaultConfig(); comments document each key for users who land here from the docs.
-const defaultConfigTOML = `# ai-attn configuration. All keys are optional — defaults apply when omitted.
+var defaultConfigTOML = fmt.Sprintf(`# ai-attn configuration. All keys are optional — defaults apply when omitted.
 
 # Master switch. When false, set-state writes are no-ops (the binary stays installed
 # and hooks still fire, they just don't record state).
@@ -419,4 +435,14 @@ enabled = true
 
 # How long a record stays valid before it is treated as expired and garbage-collected.
 ttl_seconds = 7776000
-`
+
+# Also report each state change as an OSC 7501 program status sequence on the
+# agent's terminal, for terminals and tmux builds that display it per pane.
+osc7501 = false
+
+# Agents whose hooks send OSC 7501 reports when osc7501 is true. Unset means
+# every supported agent except those that report OSC 7501 themselves:
+#   %s
+# Listing an agent turns it on even if it reports natively; [] turns all off.
+# osc7501_agents = [%s]
+`, strings.Join(sortedNativeOSC7501Agents(), ", "), quotedList(defaultOSC7501Agents()))

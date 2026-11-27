@@ -76,7 +76,7 @@ func hookExtension(agent, hookPayload string, stderr io.Writer) int {
 		return exitOK
 	}
 	if state == "" {
-		removeSessionRecord(agent, sessionID, stderr)
+		endSession(agent, sessionID, stderr)
 		return exitOK
 	}
 	return writeHookState(state, agent, sessionID, cwd, reason, stderr)

@@ -1,8 +1,10 @@
 package main
 
 type Config struct {
-	Enabled    bool `toml:"enabled"`
-	TTLSeconds int  `toml:"ttl_seconds"`
+	Enabled       bool     `toml:"enabled"`
+	TTLSeconds    int      `toml:"ttl_seconds"`
+	OSC7501       bool     `toml:"osc7501"`
+	OSC7501Agents []string `toml:"osc7501_agents"`
 }
 
 type Record struct {

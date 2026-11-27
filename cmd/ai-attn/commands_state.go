@@ -160,10 +160,16 @@ func runGC(cfg Config) (int, error) {
 			continue
 		}
 		name := entry.Name()
+		path := filepath.Join(dir, name)
+		if statePath, ok := strings.CutSuffix(path, ".json"+programStatusReceiptSuffix); ok {
+			if _, err := os.Stat(statePath + ".json"); os.IsNotExist(err) {
+				_ = os.Remove(path)
+			}
+			continue
+		}
 		if !strings.HasSuffix(name, ".json") {
 			continue
 		}
-		path := filepath.Join(dir, name)
 		data, err := os.ReadFile(path)
 		if err != nil {
 			if removeErr := os.Remove(path); removeErr == nil || errors.Is(removeErr, os.ErrNotExist) {
@@ -389,6 +395,7 @@ func cmdClear(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "warning: failed to clear %s: %s\n", entry.Name(), err)
 			continue
 		}
+		_ = os.Remove(path + programStatusReceiptSuffix)
 		cleared++
 	}
 	fmt.Fprintf(stdout, "cleared=%d\n", cleared)

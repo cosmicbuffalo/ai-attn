@@ -70,7 +70,7 @@ func hookGemini(hookPayload string, stderr io.Writer) int {
 	case "SessionEnd":
 		// /clear ends the session and starts a new one; either way this
 		// session's record is finished.
-		removeSessionRecord("gemini", sessionID, stderr)
+		endSession("gemini", sessionID, stderr)
 		return exitOK
 	default:
 		return exitOK

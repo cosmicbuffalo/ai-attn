@@ -72,7 +72,7 @@ func hookCopilot(hookPayload, event string, stderr io.Writer) int {
 	case "agentStop", "Stop":
 		state, reason = "done", "agent-turn-complete"
 	case "sessionEnd", "SessionEnd":
-		removeSessionRecord("copilot", sessionID, stderr)
+		endSession("copilot", sessionID, stderr)
 		return exitOK
 	default:
 		return exitOK
@@ -193,7 +193,7 @@ func hookGrok(hookPayload string, stderr io.Writer) int {
 	case "StopFailure":
 		state, reason = "stopped", event
 	case "SessionEnd":
-		removeSessionRecord("grok", sessionID, stderr)
+		endSession("grok", sessionID, stderr)
 		return exitOK
 	default:
 		return exitOK
